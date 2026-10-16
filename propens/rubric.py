@@ -13,6 +13,8 @@ MAX_RAW = 145
 INDICATORS = [(90, "Cemerlang / Excellent"), (80, "Baik / Good"), (70, "Memuaskan / Satisfactory"),
               (60, "Lemah / Poor"), (0, "Sangat Lemah / Very Poor")]
 
+CEMERLANG_MIN = INDICATORS[0][0]   # 90: final mark at or above this is rated Cemerlang
+
 _ATT = "(komited, berdedikasi, bermotivasi / bersemangat) terhadap pengajaran dan pembelajaran"
 _Q = "kepada persoalan pelajar (kekeliruan pelajar, masalah, kesulitan menyiapkan tugasan, dll) semasa pengajaran"
 _TPC = "terma, konsep dan prinsip"

@@ -21,6 +21,8 @@
 {% for c in r.campus %}<tr><td>{{ c.campus }}</td><td>{{ c.count }}</td><td>{{ c.average }}</td></tr>{% else %}<tr><td class="mut">No completed audits yet.</td></tr>{% endfor %}</table></div>
 <div class="card"><h2>Average by rubric section</h2><table><tr><th>Section</th><th>Average</th><th>Max</th><th>%</th></tr>
 {% for x in r.sections %}<tr><td>{{ x.key }}: {{ x.title }}</td><td>{{ x.average if x.average is not none else '—' }}</td><td>{{ x.max }}</td><td>{{ x.percent if x.percent is not none else '—' }}</td></tr>{% endfor %}</table></div>
+<div class="card"><h2>Cemerlang (final mark 90 and above)</h2><table><tr><th>Lecturer</th><th>Bidang</th><th>Campus</th><th>Marks</th></tr>
+{% for c in r.cemerlang %}<tr><td>{{ c.name }} <span class="mut">{{ c.staff_id }}</span></td><td>{{ c.bidang }}</td><td>{{ c.campus }}</td><td class="good"><b>{{ c.marks }}</b> Cemerlang</td></tr>{% else %}<tr><td class="mut">None yet.</td></tr>{% endfor %}</table></div>
 <div class="card"><h2>Mark distribution</h2><table>{% for k,v in r.bands.items() %}<tr><td>{{ k }}</td><td>{{ v }}</td></tr>{% endfor %}</table></div>
 <div class="card"><h2>Auditor workload</h2><table><tr><th>Auditor</th><th>Assigned</th><th>Completed</th></tr>
 {% for w in r.workload %}<tr><td>{{ w.name }} <span class="mut">{{ w.staff_id }}</span></td><td>{{ w.assigned }}</td><td>{{ w.completed }}</td></tr>{% else %}<tr><td class="mut">No audits yet.</td></tr>{% endfor %}</table></div>

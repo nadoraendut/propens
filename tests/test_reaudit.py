@@ -163,3 +163,19 @@ def test_old_database_is_upgraded_and_keeps_data(tmp_path):
         db.execute("INSERT INTO audits (semester_id,auditee_id,auditor_id,round_no) VALUES (1,1,2,2)")  # now allowed
         with pytest.raises(sqlite3.IntegrityError):
             db.execute("INSERT INTO audits (semester_id,auditee_id,auditor_id,round_no) VALUES (1,1,2,2)")
+
+
+def test_90_and_above_is_cemerlang(app, approved):
+    admin, head, first = approved
+    score_all(client_for(app, first["er_staff"], first["er_staff"]), first["id"], 5)          # TAS 100
+    with app.app_context():
+        sem = get_db().execute("SELECT * FROM semesters").fetchone()
+        rep = services.report(sem)
+        assert [c["staff_id"] for c in rep["cemerlang"]] == [first["ee_staff"]]
+        assert rubric.indicator(90) .startswith("Cemerlang") and rubric.indicator(89.99).startswith("Baik")
+    assert b"Cemerlang" in admin.get("/semesters/1").data and b"Cemerlang" in admin.get("/semesters/1/report").data
+    wb = load_workbook(io.BytesIO(admin.get("/semesters/1/export.xlsx").data))
+    assert wb["Cemerlang"]["A2"].value == first["ee_staff"] and wb["Cemerlang"]["F2"].value.startswith("Cemerlang")
+    # the lecturer being rated never sees it
+    ee = client_for(app, first["ee_staff"], first["ee_staff"]).get("/my-audits").data.decode()
+    assert "Cemerlang" not in ee.split("Audits where I am the auditor")[0]

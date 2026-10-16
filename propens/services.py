@@ -554,6 +554,10 @@ def report(semester):
         "threshold": semester["reaudit_below"],
         "reaudits": len(re), "reaudits_done": sum(1 for a in re if a["completed_at"]),
         "still_below": sum(1 for a in done if a["marks"] is not None and a["marks"] < semester["reaudit_below"]),
+        "cemerlang": [{"staff_id": a["ee_staff"], "name": a["ee_name"], "bidang": a["ee_bidang"],
+                       "campus": a["ee_campus"], "marks": a["marks"]}
+                      for a in sorted(done, key=lambda x: -(x["marks"] or 0))
+                      if a["marks"] is not None and a["marks"] >= rubric.CEMERLANG_MIN],
         "quota": quota,
         "campus": [{"campus": c, "count": len(v), "average": _avg(v)} for c, v in sorted(by_campus.items())],
         "bands": bands, "sections": sections,
@@ -613,6 +617,10 @@ def export_workbook(semester):
     w.append(["Staff ID", "Auditor", "Assigned", "Completed"])
     for r in rep["workload"]:
         w.append([r["staff_id"], r["name"], r["assigned"], r["completed"]])
+    cm = wb.create_sheet("Cemerlang")
+    cm.append(["Staff ID", "Staff Name", "Bidang", "Campus", "Marks TAS (/100)", "Indicator"])
+    for r in rep["cemerlang"]:
+        cm.append([r["staff_id"], r["name"], r["bidang"], r["campus"], r["marks"], rubric.indicator(r["marks"])])
     sa = wb.create_sheet("Section Averages")
     sa.append(["Section", "Max", "Average", "Average %"])
     for r in rep["sections"]:

@@ -6,7 +6,7 @@ import click
 from flask import Flask, abort, request, session
 from werkzeug.security import generate_password_hash
 
-from . import logic
+from . import logic, rubric
 from .db import close_db, get_db, init_db
 
 
@@ -56,6 +56,8 @@ def create_app(config=None):
     @app.template_filter("years")
     def years_filter(start):
         return logic.years_of_service(start)
+
+    app.template_filter("indicator")(rubric.indicator)
 
     from . import views
     app.register_blueprint(views.bp)
