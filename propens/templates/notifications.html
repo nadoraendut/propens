@@ -1,0 +1,6 @@
+{% extends "base.html" %}{% block body %}
+<div class="card"><h1>Alerts</h1>
+<form method="post"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="sec">Mark all read</button></form>
+<table>{% for n in items %}<tr><td>{% if not n.is_read %}<b>●</b>{% endif %}</td>
+<td>{% if n.link %}<a href="{{ n.link }}">{{ n.message }}</a>{% else %}{{ n.message }}{% endif %}</td>
+<td class="mut">{{ n.created_at }}</td></tr>{% else %}<tr><td class="mut">No alerts yet.</td></tr>{% endfor %}</table></div>{% endblock %}

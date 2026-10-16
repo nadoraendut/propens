@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{% block title %}Audit Planner{% endblock %}</title>
+<style>
+:root{--bg:#f6f7f9;--card:#fff;--ink:#1d2433;--mut:#667085;--line:#e3e6ec;--pri:#2b5fd9;--ok:#16794c;--warn:#a15c00;--err:#b42318}
+@media(prefers-color-scheme:dark){:root{--bg:#12151c;--card:#1b2029;--ink:#e8ebf2;--mut:#98a2b3;--line:#2c3340;--pri:#6b93ff;--ok:#4ade80;--warn:#fbbf24;--err:#f87171}}
+*{box-sizing:border-box}body{margin:0;font:15px/1.5 system-ui,sans-serif;background:var(--bg);color:var(--ink)}
+nav{background:var(--card);border-bottom:1px solid var(--line);padding:10px 16px;display:flex;gap:16px;align-items:center;flex-wrap:wrap}
+nav a{color:var(--ink);text-decoration:none}nav .sp{flex:1}nav b{color:var(--pri)}
+main{max-width:1150px;margin:20px auto;padding:0 16px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px;margin-bottom:16px}
+h1{font-size:22px;margin:0 0 12px}h2{font-size:17px;margin:0 0 10px}
+table{border-collapse:collapse;width:100%}th,td{text-align:left;padding:7px 9px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-size:12px;text-transform:uppercase;color:var(--mut)}
+.scroll{overflow-x:auto}
+input,select,textarea,button{font:inherit;padding:7px 10px;border:1px solid var(--line);border-radius:7px;background:var(--bg);color:var(--ink)}
+button,.btn{background:var(--pri);color:#fff;border:0;cursor:pointer;text-decoration:none;display:inline-block;padding:7px 14px;border-radius:7px}
+button.sec,.btn.sec{background:transparent;color:var(--pri);border:1px solid var(--pri)}
+button.danger{background:var(--err)}
+form.inline{display:inline}label{display:block;font-size:13px;color:var(--mut);margin:8px 0 3px}
+.flash{padding:9px 13px;border-radius:8px;margin-bottom:10px;border:1px solid}
+.flash.ok{color:var(--ok)}.flash.error{color:var(--err)}.flash.warn{color:var(--warn)}
+.badge{padding:2px 9px;border-radius:99px;font-size:12px;border:1px solid var(--line);color:var(--mut)}
+.good{color:var(--ok)}.bad{color:var(--err)}.mut{color:var(--mut)}
+.row{display:flex;gap:12px;flex-wrap:wrap;align-items:end}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
+.stat b{display:block;font-size:26px}
+.bar{background:var(--line);border-radius:5px;height:10px;min-width:120px}.bar i{display:block;height:100%;background:var(--pri);border-radius:5px}
+</style></head><body>
+<nav><b>Audit Planner</b>
+{% if g.user %}
+ <a href="{{ url_for('main.home') }}">Home</a>
+ <a href="{{ url_for('main.my_audits') }}">My audits</a>
+ {% if role=='admin' %}<a href="{{ url_for('main.lecturers') }}">Lecturers</a><a href="{{ url_for('main.outbox') }}">Outbox</a>{% endif %}
+ <span class="sp"></span>
+ <a href="{{ url_for('main.notifications') }}">Alerts{% if unread %} <span class="badge" style="color:var(--err)">{{ unread }}</span>{% endif %}</a>
+ <a href="{{ url_for('main.password') }}">{{ g.user.name }} ({{ g.user.role }})</a>
+ <form class="inline" method="post" action="{{ url_for('main.logout') }}"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="sec">Log out</button></form>
+{% endif %}</nav>
+<main>
+{% for cat,msg in get_flashed_messages(with_categories=true) %}{% if msg %}<div class="flash {{ cat }}">{{ msg }}</div>{% endif %}{% endfor %}
+{% block body %}{% endblock %}
+</main></body></html>

@@ -1,0 +1,14 @@
+{% extends "base.html" %}{% block body %}
+<div class="card" style="max-width:560px"><h1>{{ 'Edit' if row else 'Add' }} lecturer</h1>
+<form method="post"><input type="hidden" name="csrf" value="{{ csrf }}">
+{% set v = row or {} %}
+<label>Staff ID</label><input name="staff_id" value="{{ v.staff_id }}" required>
+<label>Staff name</label><input name="name" value="{{ v.name }}" required style="width:100%">
+<label>Gred Jawatan</label><input name="grade" value="{{ v.grade }}" placeholder="DS52" required>
+<label>Bidang (department)</label><input name="bidang" value="{{ v.bidang }}" required style="width:100%">
+<label>Start of employment (YYYY-MM-DD)</label><input name="start_date" value="{{ v.start_date }}" required>
+<label>Campus</label><input name="campus" value="{{ v.campus }}">
+<label>Status (only "Active" lecturers are audited / can audit)</label><input name="status" value="{{ v.status or 'Active' }}">
+<label>Email</label><input name="email" type="email" value="{{ v.email }}" style="width:100%">
+<label>Role</label><select name="role">{% for r in ['lecturer','admin','head'] %}<option {{ 'selected' if v.role==r }}>{{ r }}</option>{% endfor %}</select>
+<p><button>Save</button> <a class="btn sec" href="{{ url_for('main.lecturers') }}">Cancel</a></p></form></div>{% endblock %}

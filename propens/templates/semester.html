@@ -1,0 +1,59 @@
+{% extends "base.html" %}{% block body %}
+{% set steps = ['draft','generated','pending_head','approved','closed'] %}
+<div class="card"><div class="row"><h1 style="flex:1;margin:0">{{ sem.name }} <span class="badge">{{ sem.state.replace('_',' ') }}</span></h1>
+<a class="btn sec" href="{{ url_for('main.report', sid=sem.id) }}">Report</a>
+{% if role=='admin' and sem.state in ['approved','closed'] %}<a class="btn" href="{{ url_for('main.export', sid=sem.id) }}">Download Excel</a>{% endif %}</div>
+<p class="mut">Minimum {{ '%g'|format(sem.min_percent) }}% of active lecturers audited in every department.
+Flow: load list → generate → admin verifies → Head of Faculty approves → e-mails sent → sessions → marks.</p>
+{% if sem.head_comment %}<div class="flash warn"><b>Head of Faculty asked for changes:</b> {{ sem.head_comment }}</div>{% endif %}
+
+{% if role=='head' and sem.state=='pending_head' %}
+<form method="post" action="{{ url_for('main.decision', sid=sem.id) }}"><input type="hidden" name="csrf" value="{{ csrf }}">
+<label>Comment (required if requesting changes)</label><textarea name="comment" rows="2" style="width:100%"></textarea>
+<p><button name="action" value="approve">Approve list</button>
+<button name="action" value="changes" class="danger">Request changes</button></p></form>{% endif %}
+
+{% if role=='admin' %}<div class="row">
+{% if editable %}
+<form method="post" action="{{ url_for('main.generate', sid=sem.id) }}" onsubmit="return {{ 'confirm(\'Regenerating discards the current list and any manual edits. Continue?\')' if audits else 'true' }}">
+<input type="hidden" name="csrf" value="{{ csrf }}"><button>{{ 'Regenerate' if audits else 'Generate audit list' }}</button></form>
+{% if sem.state!='draft' %}<form method="post" action="{{ url_for('main.verify', sid=sem.id) }}"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="sec">Verify &amp; send to Head of Faculty</button></form>{% endif %}
+{% elif sem.state=='pending_head' %}<span class="mut">Waiting for Head of Faculty. The list is locked.</span>
+{% elif sem.state=='approved' %}<form method="post" action="{{ url_for('main.close', sid=sem.id) }}"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="sec">Close semester</button></form>{% endif %}
+</div>{% endif %}</div>
+
+{% if role=='admin' and editable %}
+<div class="card"><h2>1. Lecturers for this semester ({{ people|length }})</h2>
+<form method="post" action="{{ url_for('main.upload', sid=sem.id) }}" enctype="multipart/form-data" class="row"><input type="hidden" name="csrf" value="{{ csrf }}">
+<div><label>Excel (.xlsx) or CSV</label><input type="file" name="file" accept=".xlsx,.csv" required></div>
+<label style="margin:0 0 8px"><input type="checkbox" name="replace"> Replace the current list</label>
+<button>Upload</button> <a href="{{ url_for('main.template') }}">Download template</a></form></div>{% endif %}
+
+<div class="card"><h2>Department quota</h2><div class="scroll"><table>
+<tr><th>Bidang</th><th>Active lecturers</th><th>Required (min {{ '%g'|format(sem.min_percent) }}%)</th><th>Selected</th><th></th></tr>
+{% for q in quota %}<tr><td>{{ q.dept }}</td><td>{{ q.total }}</td><td>{{ q.required }}</td><td>{{ q.selected }}</td>
+<td class="{{ 'good' if q.ok else 'bad' }}">{{ 'OK' if q.ok else 'Below minimum' }}</td></tr>
+{% else %}<tr><td class="mut">Upload a lecturer list first.</td></tr>{% endfor %}</table></div></div>
+
+<div class="card"><h2>Audit list ({{ audits|length }})</h2><div class="scroll"><table>
+<tr><th>Auditee</th><th>Gred</th><th>Years</th><th>Bidang</th><th>Auditor</th><th>Rule</th><th>Session</th><th>Marks</th>{% if editable %}<th></th>{% endif %}</tr>
+{% for a in audits %}<tr>
+<td>{{ a.ee_name }}<br><span class="mut">{{ a.ee_staff }}</span></td><td>{{ a.ee_grade }}</td><td>{{ a.ee_start|years }}</td><td>{{ a.ee_bidang }}</td>
+<td>{% if editable %}<form method="post" action="{{ url_for('main.audit_edit', aid=a.id) }}" class="row"><input type="hidden" name="csrf" value="{{ csrf }}">
+<select name="auditor_id"><option value="">— none —</option>{% for p in pool if p.id!=a.auditee_id %}<option value="{{ p.id }}" {{ 'selected' if p.id==a.auditor_id }}>{{ p.name }} ({{ p.grade }}, {{ p.start_date|years }}y)</option>{% endfor %}</select><button class="sec">Save</button></form>
+{% else %}{{ a.er_name or '—' }}{% if a.er_name %}<br><span class="mut">{{ a.er_grade }}, {{ a.er_start|years }}y</span>{% endif %}{% endif %}</td>
+<td class="{{ 'good' if rule_ok(a) else 'bad' }}">{{ 'OK' if rule_ok(a) else ('No auditor' if not a.auditor_id else 'Override') }}</td>
+<td>{{ a.session_date or '—' }} {{ a.session_time or '' }}</td>
+<td>{% if role=='admin' and a.completed_at %}{{ a.marks }}{% elif a.completed_at %}Done{% else %}—{% endif %}</td>
+{% if editable %}<td><form method="post" action="{{ url_for('main.audit_delete', aid=a.id) }}" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="danger">Remove</button></form></td>{% endif %}
+</tr>{% else %}<tr><td class="mut">Not generated yet.</td></tr>{% endfor %}</table></div>
+{% if editable and candidates %}
+<form method="post" action="{{ url_for('main.audit_add', sid=sem.id) }}" class="row" style="margin-top:12px"><input type="hidden" name="csrf" value="{{ csrf }}">
+<div><label>Add auditee</label><select name="auditee_id">{% for p in candidates %}<option value="{{ p.id }}">{{ p.name }} — {{ p.bidang }} ({{ p.grade }})</option>{% endfor %}</select></div>
+<div><label>Auditor</label><select name="auditor_id"><option value="">— none —</option>{% for p in pool %}<option value="{{ p.id }}">{{ p.name }} ({{ p.grade }}, {{ p.start_date|years }}y)</option>{% endfor %}</select></div>
+<button>Add</button></form>{% endif %}</div>
+
+<div class="card"><h2>Lecturer list</h2><div class="scroll"><table>
+<tr><th>Staff ID</th><th>Name</th><th>Gred</th><th>Bidang</th><th>Start</th><th>Years</th><th>Campus</th><th>Status</th></tr>
+{% for p in people %}<tr><td>{{ p.staff_id }}</td><td>{{ p.name }}</td><td>{{ p.grade }}</td><td>{{ p.bidang }}</td><td>{{ p.start_date }}</td><td>{{ p.start_date|years }}</td><td>{{ p.campus }}</td><td>{{ p.status }}</td></tr>{% endfor %}</table></div></div>
+{% endblock %}

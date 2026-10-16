@@ -1,0 +1,8 @@
+{% extends "base.html" %}{% block body %}
+<div class="card"><h1>E-mail outbox</h1>
+<p class="mut">Status "queued" means SMTP is not configured, so the e-mail was recorded but not delivered. Set SMTP_HOST to send for real.</p>
+<table><tr><th>When</th><th>To</th><th>Subject</th><th>Status</th></tr>
+{% for e in rows %}<tr><td>{{ e.created_at }}</td><td>{{ e.to_addr }}</td>
+<td><details><summary>{{ e.subject }}</summary><pre style="white-space:pre-wrap">{{ e.body }}</pre></details></td>
+<td>{{ e.status }}{% if e.error %} <span class="bad">{{ e.error }}</span>{% endif %}</td></tr>
+{% else %}<tr><td class="mut">Nothing yet.</td></tr>{% endfor %}</table></div>{% endblock %}

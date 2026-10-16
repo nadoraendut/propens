@@ -1,0 +1,25 @@
+{% extends "base.html" %}{% block body %}
+<div class="card"><h1>Audits where I am the auditee</h1>
+{% for a in as_auditee %}<div style="border-top:1px solid var(--line);padding:10px 0">
+<b>{{ a.sem }}</b> — auditor: {{ a.er_name }} ({{ a.er_staff }})
+{% if a.completed_at %}<p><b>Feedback from your auditor:</b></p><p style="white-space:pre-wrap">{{ a.feedback }}</p>
+{% elif a.state=='approved' %}
+<form method="post" action="{{ url_for('main.schedule', aid=a.id) }}" class="row"><input type="hidden" name="csrf" value="{{ csrf }}">
+<div><label>Date agreed with auditor</label><input type="date" name="session_date" value="{{ a.session_date or '' }}" required></div>
+<div><label>Time</label><input type="time" name="session_time" value="{{ a.session_time or '' }}"></div>
+<div><label>Venue</label><input name="venue" value="{{ a.venue }}"></div>
+<button>{{ 'Update' if a.session_date else 'Save' }} session</button></form>
+{% if a.session_date %}<p class="good">Session set: {{ a.session_date }} {{ a.session_time }}</p>{% endif %}{% endif %}</div>
+{% else %}<p class="mut">None.</p>{% endfor %}</div>
+
+<div class="card"><h1>Audits where I am the auditor</h1>
+{% for a in as_auditor %}<div style="border-top:1px solid var(--line);padding:10px 0">
+<b>{{ a.sem }}</b> — auditee: {{ a.ee_name }} ({{ a.ee_staff }}, {{ a.ee_bidang }}) ·
+{% if a.session_date %}session {{ a.session_date }} {{ a.session_time }} {{ a.venue }}{% else %}<span class="mut">session not set yet</span>{% endif %}
+{% if a.completed_at %}<p class="good">Submitted. Marks: {{ a.marks }}</p>
+{% elif a.state=='approved' %}
+<form method="post" action="{{ url_for('main.score', aid=a.id) }}"><input type="hidden" name="csrf" value="{{ csrf }}">
+<label>Marks (0-100) — not shared with the auditee</label><input type="number" name="marks" min="0" max="100" step="0.1" value="{{ a.marks if a.marks is not none }}">
+<label>Feedback — this is sent to the auditee</label><textarea name="feedback" rows="4" style="width:100%">{{ a.feedback }}</textarea>
+<p><button name="action" value="save" class="sec">Save draft</button> <button name="action" value="submit">Submit &amp; send feedback</button></p></form>{% endif %}</div>
+{% else %}<p class="mut">None.</p>{% endfor %}</div>{% endblock %}

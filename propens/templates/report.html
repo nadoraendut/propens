@@ -1,0 +1,22 @@
+{% extends "base.html" %}{% block body %}
+<div class="card"><div class="row"><h1 style="flex:1;margin:0">Report — {{ sem.name }}</h1>
+<a class="btn sec" href="{{ url_for('main.semester', sid=sem.id) }}">Back</a>
+{% if role=='admin' %}<a class="btn" href="{{ url_for('main.export', sid=sem.id) }}">Download Excel</a>{% endif %}</div></div>
+<div class="stats">
+<div class="card stat"><b>{{ r.eligible }}</b>active lecturers</div>
+<div class="card stat"><b>{{ r.audits }}</b>selected for audit</div>
+<div class="card stat"><b>{{ r.completed }}</b>completed</div>
+<div class="card stat"><b>{{ r.scheduled }}</b>scheduled</div>
+<div class="card stat"><b>{{ r.not_scheduled }}</b>no date yet</div>
+<div class="card stat"><b>{{ r.average if r.average is not none else '—' }}</b>average marks</div>
+<div class="card stat"><b>{{ r.highest if r.highest is not none else '—' }} / {{ r.lowest if r.lowest is not none else '—' }}</b>highest / lowest</div>
+{% if r.rule_violations %}<div class="card stat bad"><b>{{ r.rule_violations }}</b>auditor rule overrides</div>{% endif %}</div>
+<div class="card"><h2>By department</h2><div class="scroll"><table><tr><th>Bidang</th><th>Active</th><th>Required</th><th>Selected</th><th>Completed</th><th>Progress</th><th>Avg marks</th></tr>
+{% for q in r.quota %}<tr><td>{{ q.dept }}</td><td>{{ q.total }}</td><td>{{ q.required }}</td><td class="{{ 'good' if q.ok else 'bad' }}">{{ q.selected }}</td><td>{{ q.completed }}</td>
+<td><div class="bar"><i style="width:{{ (100*q.completed/q.selected) if q.selected else 0 }}%"></i></div></td><td>{{ q.average if q.average is not none else '—' }}</td></tr>{% endfor %}</table></div></div>
+<div class="card"><h2>By campus</h2><table><tr><th>Campus</th><th>Completed</th><th>Avg marks</th></tr>
+{% for c in r.campus %}<tr><td>{{ c.campus }}</td><td>{{ c.count }}</td><td>{{ c.average }}</td></tr>{% else %}<tr><td class="mut">No completed audits yet.</td></tr>{% endfor %}</table></div>
+<div class="card"><h2>Mark distribution</h2><table>{% for k,v in r.bands.items() %}<tr><td>{{ k }}</td><td>{{ v }}</td></tr>{% endfor %}</table></div>
+<div class="card"><h2>Auditor workload</h2><table><tr><th>Auditor</th><th>Assigned</th><th>Completed</th></tr>
+{% for w in r.workload %}<tr><td>{{ w.name }} <span class="mut">{{ w.staff_id }}</span></td><td>{{ w.assigned }}</td><td>{{ w.completed }}</td></tr>{% else %}<tr><td class="mut">No audits yet.</td></tr>{% endfor %}</table></div>
+{% endblock %}
