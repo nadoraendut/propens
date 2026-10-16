@@ -73,6 +73,15 @@ CREATE TABLE IF NOT EXISTS facility_scores (       -- classroom facilities check
     score INTEGER NOT NULL CHECK (score BETWEEN 0 AND 5),
     PRIMARY KEY (audit_id, item)
 );
+CREATE TABLE IF NOT EXISTS audit_corrections (     -- admin corrections to submitted audits (audit trail)
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    audit_id INTEGER NOT NULL REFERENCES audits(id) ON DELETE CASCADE,
+    corrected_by INTEGER NOT NULL REFERENCES lecturers(id),
+    reason TEXT NOT NULL,
+    old_marks REAL, new_marks REAL,
+    changes TEXT NOT NULL,                         -- human-readable list of what changed
+    created_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS notifications (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     lecturer_id INTEGER NOT NULL REFERENCES lecturers(id),

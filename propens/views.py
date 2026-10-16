@@ -479,6 +479,35 @@ def rubric_form(aid):
     return render_template("rubric.html", **_rubric_ctx(audit, sem, scores, facility, editable, audit))
 
 
+@bp.route("/audits/<int:aid>/correct", methods=["GET", "POST"])
+@login_required("admin")
+def audit_correct(aid):
+    """Admin corrects a submitted audit (scores and comments) with a mandatory reason; fully logged."""
+    audit = get_audit(aid)
+    sem = get_semester(audit["semester_id"])
+    if not audit["completed_at"]:
+        flash("Only submitted audits can be corrected.", "error")
+        return back(sem["id"])
+    scores, facility = services.get_scores(aid)
+    if request.method == "POST":
+        problems = services.correct_audit(audit, g.user, request.form)
+        if not problems:
+            flash("Correction saved and logged. Admin, Head and the auditor have been alerted.", "ok")
+            return redirect(url_for("main.rubric_form", aid=aid))
+        for p in problems:
+            flash(p, "error")
+        scores = {n: int(request.form[f"item_{n}"]) for n in rubric.ITEM_NUMBERS
+                  if request.form.get(f"item_{n}") in ("1", "2", "3", "4", "5")}
+        values = dict(audit)
+        values.update({k: request.form.get(k, "") for k in services.COMMENT_FIELDS})
+        values["reason"] = request.form.get("reason", "")
+    else:
+        values = audit
+    ctx = _rubric_ctx(audit, sem, scores, facility, True, values)
+    ctx.update(correcting=True, reason=values["reason"] if "reason" in values else "")
+    return render_template("rubric.html", **ctx)
+
+
 def _rubric_ctx(audit, sem, scores, facility, editable, values):
     db = get_db()
     ee = db.execute("SELECT * FROM lecturers WHERE id=?", (audit["auditee_id"],)).fetchone()
@@ -486,7 +515,8 @@ def _rubric_ctx(audit, sem, scores, facility, editable, values):
     result = rubric.compute(scores)
     return dict(audit=audit, sem=sem, ee=ee, er=er, scores=scores, facility=facility, editable=editable,
                 v=values, r=result, indicator=rubric.indicator(result["tas"]) if result["complete"] else "",
-                rubric=rubric)
+                rubric=rubric, correcting=False, reason="",
+                corrections=services.corrections_for(audit["id"]) if g.user["role"] in ("admin", "head") else [])
 
 
 # ----------------------------------------------------- results: AJK and release

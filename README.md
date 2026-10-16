@@ -40,7 +40,15 @@ Tests: `pytest`
     **Release marks** (semester page > Results). Until then lecturers see no mark. On release every lecturer with a finished
     final audit is alerted and sees their own mark and band under My audits; Cemerlang lecturers get a congratulatory in-app
     alert. Releasing with unfinished audits needs an explicit tick; those lecturers see nothing. Release cannot be undone.
-11. Admin downloads the Excel (marks + department/campus/workload/band summaries); report page shows the same.
+11. **Admin correction.** On a submitted audit the admin can press *Correct this audit* (works before and after release):
+    change item scores and/or comments with a **mandatory reason**. Every correction is logged (who, when, old/new marks,
+    what changed, reason; shown on the audit and in the Excel *Corrections* sheet). Admin, Head and the auditor are alerted.
+    Marks, bands, Cemerlang list and reports update automatically. If a corrected mark newly falls below the re-audit
+    threshold a re-audit is proposed; newly 90+ alerts admin/Head as Cemerlang. If marks were already released the lecturer
+    is told their result was updated (no mark in the e-mail); corrected comments are re-sent to the lecturer.
+    An existing re-audit is never cancelled automatically: if a correction lifts a mark above the threshold, the alert tells
+    admin/Head to review it.
+12. Admin downloads the Excel (marks + department/campus/workload/band summaries); report page shows the same.
 
 ## Rules implemented
 * **Quota:** in every department (Bidang), `ceil(active lecturers × min%)`, at least 1, are drawn at random.

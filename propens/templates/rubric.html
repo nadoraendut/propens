@@ -12,25 +12,28 @@
 .en{font-style:italic;color:var(--mut)}
 .sticky{position:sticky;bottom:0;background:var(--card);border-top:1px solid var(--line);padding:10px 16px;margin:0 -16px -16px;display:flex;gap:16px;align-items:center;flex-wrap:wrap}
 </style>
+{% set ro = (not editable) or correcting %}
 <form method="post" id="f"><input type="hidden" name="csrf" value="{{ csrf }}">
 <div class="card">
 <div class="row"><h1 style="flex:1;margin:0">Rubrik Pemantauan Pensyarah (PRO-PENS)</h1>
-<a class="btn sec" href="{{ url_for('main.my_audits') if editable else url_for('main.semester', sid=sem.id) if role in ['admin','head'] else url_for('main.my_audits') }}">Back</a></div>
+{% if role=='admin' and audit.completed_at and not correcting %}<a class="btn" href="{{ url_for('main.audit_correct', aid=audit.id) }}">Correct this audit</a>{% endif %}
+<a class="btn sec" href="{{ url_for('main.rubric_form', aid=audit.id) if correcting else url_for('main.my_audits') if editable else url_for('main.semester', sid=sem.id) if role in ['admin','head'] else url_for('main.my_audits') }}">Back</a></div>
 <p class="mut">{{ sem.name }} · UiTM Cawangan Melaka</p>
-{% if editable %}<div class="flash warn"><b>Peringatan:</b> Pensyarah pemantau adalah <b>tidak dibenarkan</b> memaklumkan markah kepada pensyarah yang dinilai. Markah hanya akan dimaklumkan oleh Ketua Pusat Pengajian selepas mendapat kelulusan Mesyuarat Jawatankuasa Akademik Negeri. Only your written comments are sent to the lecturer.</div>{% endif %}
+{% if correcting %}<div class="flash warn"><b>Admin correction.</b> Change item scores and/or comments, then give a reason. The change is logged, the Head and the auditor are alerted, and if marks are already released the lecturer is told their result changed.</div>
+{% elif editable %}<div class="flash warn"><b>Peringatan:</b> Pensyarah pemantau adalah <b>tidak dibenarkan</b> memaklumkan markah kepada pensyarah yang dinilai. Markah hanya akan dimaklumkan oleh Ketua Pusat Pengajian selepas mendapat kelulusan Mesyuarat Jawatankuasa Akademik Negeri. Only your written comments are sent to the lecturer.</div>{% endif %}
 <div class="hdr">
 <div><label>Nama pensyarah dipantau</label><input value="{{ ee.name }}" disabled style="width:100%"></div>
 <div><label>No. pekerja</label><input value="{{ ee.staff_id }}" disabled style="width:100%"></div>
 <div><label>Gred jawatan</label><input value="{{ ee.grade }}" disabled style="width:100%"></div>
 <div><label>Bil. tahun berkhidmat</label><input value="{{ ee.start_date|years }}" disabled style="width:100%"></div>
-<div><label>Fakulti</label><input name="faculty" value="{{ v['faculty'] or '' }}" {{ '' if editable else 'disabled' }} style="width:100%"></div>
-<div><label>Program</label><input name="program" value="{{ v['program'] or '' }}" {{ '' if editable else 'disabled' }} style="width:100%"></div>
-<div><label>Kod kursus</label><input name="course_code" value="{{ v['course_code'] or '' }}" {{ '' if editable else 'disabled' }} style="width:100%"></div>
-<div><label>Kumpulan</label><input name="group_no" value="{{ v['group_no'] or '' }}" {{ '' if editable else 'disabled' }} style="width:100%"></div>
-<div><label>Bil. pelajar</label><input name="student_count" inputmode="numeric" value="{{ v['student_count'] if v['student_count'] is not none else '' }}" {{ '' if editable else 'disabled' }} style="width:100%"></div>
-<div><label>Kaedah penilaian</label><input name="method" value="{{ v['method'] or '' }}" {{ '' if editable else 'disabled' }} style="width:100%"></div>
-<div><label>Tarikh</label><input type="date" name="session_date" value="{{ v['session_date'] or '' }}" {{ '' if editable else 'disabled' }} style="width:100%"></div>
-<div><label>Masa</label><input type="time" name="session_time" value="{{ v['session_time'] or '' }}" {{ '' if editable else 'disabled' }} style="width:100%"></div>
+<div><label>Fakulti</label><input name="faculty" value="{{ v['faculty'] or '' }}" {{ 'disabled' if ro else '' }} style="width:100%"></div>
+<div><label>Program</label><input name="program" value="{{ v['program'] or '' }}" {{ 'disabled' if ro else '' }} style="width:100%"></div>
+<div><label>Kod kursus</label><input name="course_code" value="{{ v['course_code'] or '' }}" {{ 'disabled' if ro else '' }} style="width:100%"></div>
+<div><label>Kumpulan</label><input name="group_no" value="{{ v['group_no'] or '' }}" {{ 'disabled' if ro else '' }} style="width:100%"></div>
+<div><label>Bil. pelajar</label><input name="student_count" inputmode="numeric" value="{{ v['student_count'] if v['student_count'] is not none else '' }}" {{ 'disabled' if ro else '' }} style="width:100%"></div>
+<div><label>Kaedah penilaian</label><input name="method" value="{{ v['method'] or '' }}" {{ 'disabled' if ro else '' }} style="width:100%"></div>
+<div><label>Tarikh</label><input type="date" name="session_date" value="{{ v['session_date'] or '' }}" {{ 'disabled' if ro else '' }} style="width:100%"></div>
+<div><label>Masa</label><input type="time" name="session_time" value="{{ v['session_time'] or '' }}" {{ 'disabled' if ro else '' }} style="width:100%"></div>
 </div></div>
 
 {% for sec in rubric.SECTIONS %}
@@ -55,15 +58,19 @@
 
 <div class="card scroll"><h2>Prasarana &amp; Fasiliti Pembelajaran di bilik kuliah</h2>
 <p class="mut">Not part of the mark. Visible to the auditor, admin and Head of Faculty only; not sent to the lecturer.</p>
-<label>Bilik kuliah</label><input name="facility_room" value="{{ v['facility_room'] or '' }}" {{ '' if editable else 'disabled' }}>
+<label>Bilik kuliah</label><input name="facility_room" value="{{ v['facility_room'] or '' }}" {{ 'disabled' if ro else '' }}>
 <table class="rb" style="margin-top:10px"><tr><th>Kriteria</th>{% for n in rubric.FACILITY_SCALE %}<th style="min-width:70px">{{ loop.index0 }}<br>{{ n }}</th>{% endfor %}</tr>
 {% for t in rubric.FACILITY_ITEMS %}{% set i = loop.index %}<tr><td>{{ i }}. {{ t }}</td>
-{% for n in rubric.FACILITY_SCALE %}<td style="text-align:center"><input type="radio" name="fac_{{ i }}" value="{{ loop.index0 }}" {{ 'checked' if facility.get(i)==loop.index0 }} {{ '' if editable else 'disabled' }}></td>{% endfor %}</tr>{% endfor %}</table>
-<label>Cadangan penambahbaikan dan lain-lain</label><textarea name="facility_suggestion" rows="3" style="width:100%" {{ '' if editable else 'disabled' }}>{{ v['facility_suggestion'] or '' }}</textarea></div>
+{% for n in rubric.FACILITY_SCALE %}<td style="text-align:center"><input type="radio" name="fac_{{ i }}" value="{{ loop.index0 }}" {{ 'checked' if facility.get(i)==loop.index0 }} {{ 'disabled' if ro else '' }}></td>{% endfor %}</tr>{% endfor %}</table>
+<label>Cadangan penambahbaikan dan lain-lain</label><textarea name="facility_suggestion" rows="3" style="width:100%" {{ 'disabled' if ro else '' }}>{{ v['facility_suggestion'] or '' }}</textarea></div>
 
+{% if correcting %}<div class="card"><h2>Reason for correction (required)</h2><textarea name="reason" rows="3" style="width:100%" required>{{ reason }}</textarea></div>{% endif %}
+{% if corrections %}<div class="card"><h2>Correction history</h2><table><tr><th>When</th><th>By</th><th>Marks</th><th>Reason</th><th>Changes</th></tr>
+{% for c in corrections %}<tr><td>{{ c.created_at }}</td><td>{{ c.by_name }}</td><td>{{ c.old_marks }} → {{ c.new_marks }}</td><td>{{ c.reason }}</td><td class="mut">{{ c.changes }}</td></tr>{% endfor %}</table></div>{% endif %}
 <div class="card"><div class="sticky">
 <div><b>TS</b> <span id="ts">{{ r.ts }}</span> / 50 &nbsp; <b>TAS</b> <span id="tas">{{ r.tas }}</span> / 100 &nbsp; <span class="badge" id="ind">{{ indicator }}</span>{% if not r.complete %} <span class="mut">(incomplete)</span>{% endif %}</div>
-{% if editable %}<span class="sp" style="flex:1"></span><button name="action" value="save" class="sec">Save draft</button>
+{% if correcting %}<span class="sp" style="flex:1"></span><button onclick="return confirm('Save this correction?')">Save correction</button>
+{% elif editable %}<span class="sp" style="flex:1"></span><button name="action" value="save" class="sec">Save draft</button>
 <button name="action" value="submit" onclick="return confirm('Submit? You cannot edit after submitting.')">Submit &amp; send comments to lecturer</button>{% endif %}
 </div>
 <p class="mut" style="margin:8px 0 0">TS = (A+B+C) × 50 / 145 · TAS = TS × 2 · &lt;60 Sangat Lemah · 60–69 Lemah · 70–79 Memuaskan · 80–89 Baik · 90–100 Cemerlang</p></div>

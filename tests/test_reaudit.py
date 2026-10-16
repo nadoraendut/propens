@@ -234,3 +234,80 @@ def test_release_shows_only_final_mark_after_reaudit(app, approved):
     r = post(admin, "/semesters/1/release", allow_incomplete="on")
     page = ee.get("/my-audits").data.decode().split("Audits where I am the auditor")[0]
     assert "Your result: 80.0 / 100" in page and "40.0" not in page                   # first (40) never shown
+
+
+def correct(c, audit_id, value, reason="Scoring error", **extra):
+    data = {f"item_{n}": str(value) for n in rubric.ITEM_NUMBERS}
+    return post(c, f"/audits/{audit_id}/correct", comment_teaching="ok", comment_prof="ok", reason=reason,
+                **{**data, **extra})
+
+
+def test_admin_correction_after_release(app, approved):
+    admin, head, first = approved
+    ee = client_for(app, first["ee_staff"], first["ee_staff"])
+    score_all(client_for(app, first["er_staff"], first["er_staff"]), first["id"], 4)       # 80.0, passes
+    post(admin, "/semesters/1/ajk"); post(admin, "/semesters/1/release", allow_incomplete="on")
+    assert "Your result: 80.0 / 100" in ee.get("/my-audits").data.decode()
+
+    # only the admin; needs a reason and an actual change
+    assert head.get(f"/audits/{first['id']}/correct").status_code == 403
+    assert ee.get(f"/audits/{first['id']}/correct").status_code == 403
+    assert b"reason for the correction is required" in correct(admin, first["id"], 5, reason="").data
+    assert b"Nothing was changed" in correct(admin, first["id"], 4).data
+    assert b"Every item must have a score" in post(admin, f"/audits/{first['id']}/correct", reason="x",
+                                                   comment_teaching="ok", comment_prof="ok", item_1="5").data
+    with app.app_context():
+        assert get_db().execute("SELECT marks FROM audits WHERE id=?", (first["id"],)).fetchone()[0] == 80.0
+
+    r = correct(admin, first["id"], 5, reason="Auditor mis-keyed items")
+    assert b"Correction saved" in r.data and b"Correction history" in r.data and b"Auditor mis-keyed items" in r.data
+    with app.app_context():
+        db = get_db()
+        assert db.execute("SELECT marks, raw_score FROM audits WHERE id=?", (first["id"],)).fetchone()[:] == (100.0, 145)
+        log = db.execute("SELECT * FROM audit_corrections").fetchone()
+        assert (log["old_marks"], log["new_marks"], log["corrected_by"]) == (80.0, 100.0, 1) and "Item 1: 4 -> 5" in log["changes"]
+        count = lambda uid, like: db.execute("SELECT COUNT(*) FROM notifications WHERE lecturer_id=? AND message LIKE ?",
+                                             (uid, like)).fetchone()[0]
+        assert count(2, "Audit corrected%") == 1 and count(1, "Audit corrected%") == 1          # Head and admin
+        assert count(2, "Cemerlang result%") == 1                                                  # crossed into Cemerlang
+        assert count(first["auditor_id"], "The admin corrected%") == 1
+        assert count(first["auditee_id"], "Your PRO-PENS result for%has been updated") == 1
+        assert count(first["auditee_id"], "Congratulations! Your corrected%") == 1
+        assert db.execute("SELECT COUNT(*) FROM emails WHERE to_addr=? AND subject LIKE '%has been updated'",
+                          (first["ee_email"],)).fetchone()[0] == 1
+        assert "100" not in db.execute("SELECT body FROM emails WHERE subject LIKE '%has been updated'").fetchone()[0]
+    assert "Your result: 100.0 / 100" in ee.get("/my-audits").data.decode()
+    ws = load_workbook(io.BytesIO(admin.get("/semesters/1/export.xlsx").data))
+    assert ws["Corrections"]["F2"].value == 80.0 and ws["Corrections"]["G2"].value == 100.0
+    assert ws["Corrections"]["H2"].value == "Auditor mis-keyed items" and ws["Cemerlang"]["A2"].value == first["ee_staff"]
+
+
+def test_correction_below_threshold_starts_reaudit(app, approved):
+    admin, head, first = approved
+    score_all(client_for(app, first["er_staff"], first["er_staff"]), first["id"], 4)        # 80.0
+    with app.app_context():
+        assert not services.reaudit_rows(1)
+    correct(admin, first["id"], 2)                                                          # 40.0 -> below 80
+    with app.app_context():
+        re = services.reaudit_rows(1)
+        assert len(re) == 1 and re[0]["reaudit_state"] == "proposed"
+        assert get_db().execute("SELECT COUNT(*) FROM notifications WHERE message LIKE 'Re-audit needed%'").fetchone()[0] == 1
+    correct(admin, first["id"], 1)                                                          # still below: no second proposal
+    with app.app_context():
+        assert len(services.reaudit_rows(1)) == 1
+
+
+def test_comment_only_correction_resends_feedback(app, approved):
+    admin, head, first = approved
+    score_all(client_for(app, first["er_staff"], first["er_staff"]), first["id"], 4)
+    post(admin, f"/audits/{first['id']}/correct", reason="Typo", comment_teaching="Better wording", comment_prof="ok",
+         **{f"item_{n}": "4" for n in rubric.ITEM_NUMBERS})
+    with app.app_context():
+        m = get_db().execute("SELECT * FROM emails WHERE to_addr=? AND subject LIKE 'Your audit feedback has been updated'",
+                             (first["ee_email"],)).fetchone()
+        assert "Better wording" in m["body"]
+        assert get_db().execute("SELECT marks FROM audits WHERE id=?", (first["id"],)).fetchone()[0] == 80.0
+    # an audit that was never submitted cannot be corrected
+    with app.app_context():
+        other = [a for a in services.audit_rows(1) if a["id"] != first["id"]][0]
+    assert b"Only submitted audits" in post(admin, f"/audits/{other['id']}/correct", reason="x").data

@@ -288,6 +288,13 @@ def get_scores(audit_id):
             {r["item"]: r["score"] for r in db.execute("SELECT item,score FROM facility_scores WHERE audit_id=?", (audit_id,))})
 
 
+def build_feedback(comments):
+    return "\n\n".join(f"{title}:\n{comments[k]}" for k, title in
+                        [("comment_teaching", "Pengajaran dan Pembelajaran"),
+                         ("comment_prof", "Profesionalisme Pensyarah"),
+                         ("comment_other", "Lain-lain Perkara")] if comments[k])
+
+
 def save_rubric(audit, form, submit):
     """Store the auditor's PRO-PENS rubric. With submit=True it is validated and finalised.
 
@@ -339,10 +346,7 @@ def save_rubric(audit, form, submit):
          sdate.isoformat() if sdate else None, form.get("session_time", ""),
          result["raw"] if scores else None, result["tas"] if result["complete"] else None, audit["id"]))
     if submit:
-        feedback = "\n\n".join(f"{title}:\n{comments[k]}" for k, title in
-                                [("comment_teaching", "Pengajaran dan Pembelajaran"),
-                                 ("comment_prof", "Profesionalisme Pensyarah"),
-                                 ("comment_other", "Lain-lain Perkara")] if comments[k])
+        feedback = build_feedback(comments)
         db.execute("UPDATE audits SET feedback=?, completed_at=? WHERE id=?", (feedback, now(), audit["id"]))
         ee = db.execute("SELECT * FROM lecturers WHERE id=?", (audit["auditee_id"],)).fetchone()
         tell(ee, "Feedback from your teaching audit",
@@ -427,6 +431,102 @@ def _handle_cemerlang(audit, semester, tas):
         tell(p, f"Cemerlang result: {ee['name']} ({tas:g}/100)",
              f"{ee['name']} ({ee['staff_id']}, {ee['bidang']}) scored {tas:g}/100 in {semester['name']} "
              f"(Cemerlang, {rubric.CEMERLANG_MIN}-100), audited by {er['name']}.", f"/semesters/{semester['id']}")
+
+
+def corrections_for(audit_id):
+    return get_db().execute(
+        """SELECT c.*, l.name by_name FROM audit_corrections c JOIN lecturers l ON l.id=c.corrected_by
+           WHERE c.audit_id=? ORDER BY c.id DESC""", (audit_id,)).fetchall()
+
+
+def correct_audit(audit, admin, form):
+    """Admin corrects a submitted audit's item scores and/or comments. A written reason is mandatory.
+
+    Everything downstream follows: marks, bands, Cemerlang list, reports, Excel. Logged in audit_corrections.
+    Returns a list of problems (empty on success).
+    """
+    db = get_db()
+    if not audit["completed_at"]:
+        return ["Only submitted audits can be corrected."]
+    old_scores, _ = get_scores(audit["id"])
+    new_scores = {}
+    for n in rubric.ITEM_NUMBERS:
+        v = form.get(f"item_{n}", "")
+        if v in ("1", "2", "3", "4", "5"):
+            new_scores[n] = int(v)
+    comments = {k: form.get(k, "").strip() for k in COMMENT_FIELDS}
+    reason = form.get("reason", "").strip()
+    problems = []
+    if len(new_scores) != len(rubric.ITEM_NUMBERS):
+        problems.append("Every item must have a score from 1 to 5.")
+    if not comments["comment_teaching"] or not comments["comment_prof"]:
+        problems.append("Overall comments on Teaching & Learning and on Lecturer Professionalism are mandatory.")
+    if not reason:
+        problems.append("A reason for the correction is required.")
+    changes = [f"Item {n}: {old_scores.get(n)} -> {new_scores[n]}"
+               for n in rubric.ITEM_NUMBERS if n in new_scores and old_scores.get(n) != new_scores[n]]
+    old_comments = {k: audit[k] for k in COMMENT_FIELDS}
+    comment_changed = [k for k in COMMENT_FIELDS if old_comments[k] != comments[k]]
+    changes += [f"Comment changed: {k.replace('comment_', '')}" for k in comment_changed]
+    if not problems and not changes:
+        problems.append("Nothing was changed.")
+    if problems:
+        return problems
+
+    sem = db.execute("SELECT * FROM semesters WHERE id=?", (audit["semester_id"],)).fetchone()
+    old_marks = audit["marks"]
+    result = rubric.compute(new_scores)
+    new_marks = result["tas"]
+    db.execute("DELETE FROM audit_scores WHERE audit_id=?", (audit["id"],))
+    db.executemany("INSERT INTO audit_scores VALUES (?,?,?)", [(audit["id"], n, v) for n, v in new_scores.items()])
+    db.execute("""UPDATE audits SET comment_teaching=?, comment_prof=?, comment_other=?, feedback=?,
+                  raw_score=?, marks=? WHERE id=?""",
+               (comments["comment_teaching"], comments["comment_prof"], comments["comment_other"],
+                build_feedback(comments), result["raw"], new_marks, audit["id"]))
+    db.execute("INSERT INTO audit_corrections (audit_id,corrected_by,reason,old_marks,new_marks,changes,created_at) "
+               "VALUES (?,?,?,?,?,?,?)",
+               (audit["id"], admin["id"], reason, old_marks, new_marks, "; ".join(changes), now()))
+
+    ee = db.execute("SELECT * FROM lecturers WHERE id=?", (audit["auditee_id"],)).fetchone()
+    er = db.execute("SELECT * FROM lecturers WHERE id=?", (audit["auditor_id"],)).fetchone()
+    link = f"/semesters/{sem['id']}"
+    fresh = db.execute("SELECT * FROM audits WHERE id=?", (audit["id"],)).fetchone()
+    below, was_below = new_marks < sem["reaudit_below"], old_marks is not None and old_marks < sem["reaudit_below"]
+    notes = []
+    if below and not was_below:
+        has_reaudit = db.execute("SELECT 1 FROM audits WHERE reaudit_of=?", (audit["id"],)).fetchone()
+        if audit["round_no"] == 1 and has_reaudit:
+            pass
+        elif audit["round_no"] == 1 and sem["state"] != "approved":
+            notes.append(f"The corrected mark is now below {sem['reaudit_below']:g} but the semester is closed, "
+                         "so no re-audit was created. Decide manually.")
+        else:
+            _handle_low_mark(fresh, sem, new_marks)
+    elif was_below and not below:
+        if audit["round_no"] == 1 and db.execute("SELECT 1 FROM audits WHERE reaudit_of=?", (audit["id"],)).fetchone():
+            notes.append(f"The corrected mark is no longer below {sem['reaudit_below']:g}, but a re-audit already "
+                         "exists. Review it and decide whether it is still needed (it was not cancelled).")
+    if new_marks >= rubric.CEMERLANG_MIN and (old_marks is None or old_marks < rubric.CEMERLANG_MIN):
+        _handle_cemerlang(fresh, sem, new_marks)
+    summary = (f"{ee['name']} ({ee['staff_id']}), {sem['name']}: {old_marks:g} -> {new_marks:g}. "
+               f"Reason: {reason}\nChanges: {'; '.join(changes)}" + ("".join("\n" + n for n in notes)))
+    admins, heads = _admins_and_heads()
+    for p in admins + heads:
+        tell(p, f"Audit corrected: {ee['name']}", summary, link)
+    notify(er["id"], f"The admin corrected your audit of {ee['name']}", "/my-audits")
+    final = audit["id"] in final_audit_ids(sem["id"])
+    if comment_changed:
+        tell(ee, "Your audit feedback has been updated",
+             f"Dear {ee['name']},\n\nThe feedback on your audit was corrected:\n\n{build_feedback(comments)}", "/my-audits")
+    if sem["released_at"] and final and old_marks != new_marks:
+        tell(ee, f"Your PRO-PENS result for {sem['name']} has been updated",
+             f"Dear {ee['name']},\n\nYour PRO-PENS result for {sem['name']} was corrected. "
+             "Log in to My audits to view it.", "/my-audits")
+        if new_marks >= rubric.CEMERLANG_MIN and (old_marks or 0) < rubric.CEMERLANG_MIN:
+            notify(ee["id"], f"Congratulations! Your corrected PRO-PENS result for {sem['name']} is Cemerlang "
+                             f"({rubric.CEMERLANG_MIN} and above).", "/my-audits")
+    db.commit()
+    return []
 
 
 def final_audit_ids(semester_id):
@@ -689,6 +789,13 @@ def export_workbook(semester):
     cm.append(["Staff ID", "Staff Name", "Bidang", "Campus", "Marks TAS (/100)", "Indicator"])
     for r in rep["cemerlang"]:
         cm.append([r["staff_id"], r["name"], r["bidang"], r["campus"], r["marks"], rubric.indicator(r["marks"])])
+    co = wb.create_sheet("Corrections")
+    co.append(["Staff ID", "Staff Name", "Round", "Corrected on", "Corrected by", "Old marks", "New marks",
+               "Reason", "Changes"])
+    for a in audits:
+        for c in reversed(corrections_for(a["id"])):
+            co.append([a["ee_staff"], a["ee_name"], a["round_no"], c["created_at"], c["by_name"],
+                       c["old_marks"], c["new_marks"], c["reason"], c["changes"]])
     sa = wb.create_sheet("Section Averages")
     sa.append(["Section", "Max", "Average", "Average %"])
     for r in rep["sections"]:
