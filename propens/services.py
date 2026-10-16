@@ -168,7 +168,7 @@ def department_quota(semester):
     audits = audit_rows(semester["id"])
     out = []
     for dept in sorted(by):
-        sel = [a for a in audits if a["ee_bidang"] == dept]
+        sel = [a for a in audits if a["ee_bidang"] == dept and a["round_no"] == 1]
         need = logic.required_count(len(by[dept]), semester["min_percent"])
         out.append({"dept": dept, "total": len(by[dept]), "required": need,
                     "selected": len(sel), "ok": len(sel) >= need})
@@ -349,8 +349,134 @@ def save_rubric(audit, form, submit):
              f"Dear {ee['name']},\n\nFeedback from your auditor:\n\n{feedback}\n\n"
              "Note: marks are not disclosed by the auditor. They are announced officially by the "
              "Ketua Pusat Pengajian after approval by the committee.", "/my-audits")
+        sem = db.execute("SELECT * FROM semesters WHERE id=?", (audit["semester_id"],)).fetchone()
+        _handle_low_mark(audit, sem, result["tas"])
     db.commit()
     return []
+
+
+def is_active(audit):
+    """Round-1 audits, and re-audits once the Head has approved the second auditor."""
+    return audit["round_no"] == 1 or audit["reaudit_state"] == "approved"
+
+
+def final_audits(audits):
+    """One audit per auditee: the latest round. A second audit replaces the first mark."""
+    best = {}
+    for a in audits:
+        if a["auditee_id"] not in best or a["round_no"] > best[a["auditee_id"]]["round_no"]:
+            best[a["auditee_id"]] = a
+    return list(best.values())
+
+
+def _admins_and_heads():
+    return users_with_role("admin"), users_with_role("head")
+
+
+def _handle_low_mark(audit, semester, tas):
+    """Marks below the semester threshold: alert admin + Head and propose a re-audit.
+
+    The first audit starts a re-audit proposal (different auditor, same rule as normal matching).
+    A low mark in the re-audit itself is only flagged; no third audit is created.
+    """
+    if tas >= semester["reaudit_below"]:
+        return
+    db = get_db()
+    ee = db.execute("SELECT * FROM lecturers WHERE id=?", (audit["auditee_id"],)).fetchone()
+    er = db.execute("SELECT * FROM lecturers WHERE id=?", (audit["auditor_id"],)).fetchone()
+    admins, heads = _admins_and_heads()
+    link = f"/semesters/{semester['id']}"
+    head_line = f"{ee['name']} ({ee['staff_id']}) scored {tas:g}/100 (below {semester['reaudit_below']:g}) " \
+                f"in {semester['name']}, audited by {er['name']}."
+    if audit["round_no"] >= 2:
+        for p in admins + heads:
+            tell(p, f"Still below {semester['reaudit_below']:g} after re-audit: {ee['name']}",
+                 head_line + "\nThis was the re-audit. No further audit was created; a decision is needed.", link)
+        return
+    pool = [dict(l) for l in semester_lecturers(semester["id"]) if logic.is_eligible(l["status"])]
+    prior = {r["auditor_id"] for r in db.execute(
+        "SELECT auditor_id FROM audits WHERE semester_id=? AND auditee_id=?", (semester["id"], ee["id"]))}
+    load = defaultdict(int)
+    for a in audit_rows(semester["id"]):
+        if is_active(a) and a["auditor_id"]:
+            load[a["auditor_id"]] += 1
+    pick = logic.pick_auditor(dict(ee), pool, prior | {ee["id"]}, load, random.SystemRandom())
+    db.execute("""INSERT INTO audits (semester_id,auditee_id,auditor_id,origin,round_no,reaudit_of,reaudit_state)
+                  VALUES (?,?,?,'auto',2,?,'proposed')""", (semester["id"], ee["id"], pick, audit["id"]))
+    for p in admins:
+        tell(p, f"Re-audit needed: {ee['name']} scored below {semester['reaudit_below']:g}",
+             head_line + "\nA second audit by a different auditor is required this semester. "
+             + ("A replacement auditor has been proposed; review it and submit it to the Head of Faculty."
+                if pick else "No eligible auditor could be proposed; choose one and submit it to the Head."), link)
+    for p in heads:
+        tell(p, f"Low audit result: {ee['name']}",
+             head_line + "\nA second audit is required. The admin will submit a proposed second auditor "
+             "for your approval.", link)
+
+
+def reaudit_rows(semester_id):
+    return [a for a in audit_rows(semester_id) if a["round_no"] == 2]
+
+
+def first_audit(audit):
+    return get_db().execute("SELECT * FROM audits WHERE id=?", (audit["reaudit_of"],)).fetchone()
+
+
+def submit_reaudit(audit, auditor_id):
+    """Admin sets the second auditor and sends it to the Head for approval."""
+    db = get_db()
+    if audit["round_no"] != 2 or audit["reaudit_state"] not in ("proposed", "changes_requested"):
+        raise ValueError("This re-audit is not open for editing.")
+    prior = {r["auditor_id"] for r in db.execute(
+        "SELECT auditor_id FROM audits WHERE semester_id=? AND auditee_id=? AND round_no=1",
+        (audit["semester_id"], audit["auditee_id"]))}
+    ok = db.execute(
+        """SELECT l.* FROM semester_lecturers sl JOIN lecturers l ON l.id=sl.lecturer_id
+           WHERE sl.semester_id=? AND l.id=? AND lower(l.status)='active'""",
+        (audit["semester_id"], auditor_id)).fetchone()
+    if not ok or auditor_id == audit["auditee_id"]:
+        raise ValueError("Choose an active lecturer other than the auditee.")
+    if auditor_id in prior:
+        raise ValueError("The re-audit must be done by a different auditor from the first audit.")
+    sem = db.execute("SELECT * FROM semesters WHERE id=?", (audit["semester_id"],)).fetchone()
+    ee = db.execute("SELECT * FROM lecturers WHERE id=?", (audit["auditee_id"],)).fetchone()
+    db.execute("UPDATE audits SET auditor_id=?, origin='manual', reaudit_state='pending_head', "
+               "reaudit_comment='' WHERE id=?", (auditor_id, audit["id"]))
+    for head in users_with_role("head"):
+        tell(head, f"Approve second auditor for {ee['name']} ({sem['name']})",
+             f"Re-audit for {ee['name']}: proposed auditor is {ok['name']} ({ok['grade']}). "
+             "Please approve or ask the admin to change it.", f"/semesters/{sem['id']}")
+    db.commit()
+
+
+def decide_reaudit(audit, approve_it, comment=""):
+    """Head approves the second auditor (emails go out) or sends it back."""
+    db = get_db()
+    if audit["reaudit_state"] != "pending_head" or not audit["auditor_id"]:
+        raise ValueError("This re-audit is not awaiting approval.")
+    sem = db.execute("SELECT * FROM semesters WHERE id=?", (audit["semester_id"],)).fetchone()
+    ee = db.execute("SELECT * FROM lecturers WHERE id=?", (audit["auditee_id"],)).fetchone()
+    er = db.execute("SELECT * FROM lecturers WHERE id=?", (audit["auditor_id"],)).fetchone()
+    link = f"/semesters/{sem['id']}"
+    if approve_it:
+        db.execute("UPDATE audits SET reaudit_state='approved', reaudit_approved_at=? WHERE id=?",
+                   (now(), audit["id"]))
+        tell(ee, f"A second teaching audit is required - {sem['name']}",
+             f"Dear {ee['name']},\n\nA second audit is required for you in {sem['name']}. "
+             f"Your auditor is {er['name']} ({er['staff_id']}). Please agree on a date and time and "
+             "enter the session details in the app.", "/my-audits")
+        tell(er, f"You are assigned a re-audit - {sem['name']}",
+             f"Dear {er['name']},\n\nYou have been assigned to audit {ee['name']} ({ee['staff_id']}) "
+             f"in {sem['name']}. Please agree on a date and time with the auditee. Enter the rubric "
+             "in the app during the session.", "/my-audits")
+        for adm in users_with_role("admin"):
+            tell(adm, f"Re-audit approved for {ee['name']}", f"Auditor: {er['name']}. Both parties were e-mailed.", link)
+    else:
+        db.execute("UPDATE audits SET reaudit_state='changes_requested', reaudit_comment=? WHERE id=?",
+                   (comment, audit["id"]))
+        for adm in users_with_role("admin"):
+            tell(adm, f"Head asked to change the second auditor for {ee['name']}", f"Reason: {comment}", link)
+    db.commit()
 
 
 def send_reminders(today=None):
@@ -359,7 +485,8 @@ def send_reminders(today=None):
     db = get_db()
     due = db.execute(
         """SELECT * FROM audits WHERE session_date IS NOT NULL AND completed_at IS NULL
-           AND reminder_sent_at IS NULL AND session_date BETWEEN ? AND ?""",
+           AND reminder_sent_at IS NULL AND (round_no=1 OR reaudit_state='approved')
+           AND session_date BETWEEN ? AND ?""",
         (today.isoformat(), (today + timedelta(days=1)).isoformat())).fetchall()
     for a in due:
         when = f"{a['session_date']} {a['session_time'] or ''} {('at ' + a['venue']) if a['venue'] else ''}"
@@ -382,7 +509,9 @@ def _avg(vals):
 
 
 def report(semester):
-    audits = audit_rows(semester["id"])
+    """Semester report. A lecturer's final mark is that of their latest audit (a re-audit replaces the first)."""
+    allrows = audit_rows(semester["id"])
+    audits = final_audits(allrows)                       # one row per auditee
     done = [a for a in audits if a["completed_at"]]
     scored = [a["marks"] for a in done if a["marks"] is not None]
     by_campus, by_dept = defaultdict(list), defaultdict(list)
@@ -390,8 +519,8 @@ def report(semester):
         by_campus[a["ee_campus"] or "-"].append(a["marks"])
         by_dept[a["ee_bidang"]].append(a["marks"])
     load = defaultdict(lambda: [0, 0])
-    for a in audits:
-        if a["auditor_id"]:
+    for a in allrows:
+        if a["auditor_id"] and is_active(a):
             key = (a["er_staff"], a["er_name"])
             load[key][0] += 1
             load[key][1] += 1 if a["completed_at"] else 0
@@ -411,22 +540,27 @@ def report(semester):
     for q in quota:
         q["completed"] = sum(1 for a in done if a["ee_bidang"] == q["dept"])
         q["average"] = _avg(by_dept.get(q["dept"], []))
+    re = [a for a in allrows if a["round_no"] == 2]
+    statuses = rule_statuses(semester["id"])
     return {
         "total_lecturers": len(semester_lecturers(semester["id"])),
         "eligible": sum(q["total"] for q in quota),
         "audits": len(audits), "completed": len(done),
         "scheduled": sum(1 for a in audits if a["session_date"] and not a["completed_at"]),
-        "not_scheduled": sum(1 for a in audits if not a["session_date"]),
+        "not_scheduled": sum(1 for a in audits if not a["session_date"] and not a["completed_at"]),
         "average": _avg(scored),
         "highest": max(scored) if scored else None,
         "lowest": min(scored) if scored else None,
+        "threshold": semester["reaudit_below"],
+        "reaudits": len(re), "reaudits_done": sum(1 for a in re if a["completed_at"]),
+        "still_below": sum(1 for a in done if a["marks"] is not None and a["marks"] < semester["reaudit_below"]),
         "quota": quota,
         "campus": [{"campus": c, "count": len(v), "average": _avg(v)} for c, v in sorted(by_campus.items())],
         "bands": bands, "sections": sections,
         "workload": [{"staff_id": k[0], "name": k[1], "assigned": v[0], "completed": v[1]}
                      for k, v in sorted(load.items(), key=lambda kv: -kv[1][0])],
-        "rule_violations": sum(1 for v in rule_statuses(semester["id"]).values() if v == "override"),
-        "peer_pairs": sum(1 for v in rule_statuses(semester["id"]).values() if v == "peer"),
+        "rule_violations": sum(1 for v in statuses.values() if v == "override"),
+        "peer_pairs": sum(1 for v in statuses.values() if v == "peer"),
     }
 
 
@@ -440,20 +574,24 @@ def export_workbook(semester):
     keys = [sec["key"] for sec in rubric.SECTIONS]
     ws.append(["Semester", "Staff ID", "Staff Name", "Gred Jawatan", "Bidang", "Campus",
                "Auditor Staff ID", "Auditor Name", "Session Date", "Session Time", "Venue",
-               "Course Code", "Programme", "Group", "No. Students"]
+               "Course Code", "Programme", "Group", "No. Students", "Round", "Counts as final mark"]
               + [f"{k} (/{sec['max']})" for k, sec in zip(keys, rubric.SECTIONS)]
               + ["Raw Total (/145)", "Total Score TS (/50)", "Marks TAS (/100)", "Indicator", "Status"])
+    final_ids = {a["id"] for a in final_audits(audits)}
     for a in audits:
         sc, _ = get_scores(a["id"])
         r = rubric.compute(sc)
         done = bool(a["completed_at"])
         ws.append([semester["name"], a["ee_staff"], a["ee_name"], a["ee_grade"], a["ee_bidang"],
                    a["ee_campus"], a["er_staff"], a["er_name"], a["session_date"], a["session_time"],
-                   a["venue"], a["course_code"], a["program"], a["group_no"], a["student_count"]]
+                   a["venue"], a["course_code"], a["program"], a["group_no"], a["student_count"],
+                   a["round_no"], "Yes" if a["id"] in final_ids else "No (replaced by re-audit)"]
                   + [r["sections"][k] if done else None for k in keys]
                   + [r["raw"] if done else None, r["ts"] if done else None, a["marks"] if done else None,
                      rubric.indicator(a["marks"]) if done else "",
-                     "Completed" if done else ("Scheduled" if a["session_date"] else "Not scheduled")])
+                     "Completed" if done else (
+                         "Re-audit awaiting approval" if a["round_no"] == 2 and a["reaudit_state"] != "approved"
+                         else "Scheduled" if a["session_date"] else "Not scheduled")])
     f = wb.create_sheet("Facilities")
     f.append(["Staff ID", "Staff Name", "Room"] + [f"{n}" for n in range(1, len(rubric.FACILITY_ITEMS) + 1)]
              + ["Suggestions"])

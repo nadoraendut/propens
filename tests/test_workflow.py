@@ -144,7 +144,8 @@ def test_full_workflow(app):
     # locked after submit
     assert er.post(f"/audits/{a['id']}/rubric", data={"csrf": "t", "action": "save"}).status_code == 403
     page = ee.get("/my-audits").data.decode()
-    assert "Clear delivery." in page and "80.0" not in page and "rubric" not in page.lower().replace("pro-pens rubric", "")
+    auditee_part = page.split("Audits where I am the auditor")[0]          # this lecturer may also be an auditor
+    assert "Clear delivery." in auditee_part and "80.0" not in auditee_part and "rubric" not in auditee_part.lower()
     assert admin.get(f"/audits/{a['id']}/rubric").status_code == 200
     assert b"80.0" in admin.get(f"/audits/{a['id']}/rubric").data
 

@@ -116,3 +116,17 @@ def assign_auditors(auditees, pool, rng, today=None):
         load[pick["id"]] += 1
         result[a["id"]] = pick["id"]
     return result
+
+
+def pick_auditor(auditee, pool, exclude_ids, load, rng, today=None):
+    """One auditor for a single auditee (used for re-audits).
+
+    Same rule as assign_auditors (outrank, else same-seniority peer), skipping `exclude_ids`
+    (the auditee and anyone who already audited them) and favouring the lightest workload.
+    """
+    ok = [p for p in pool if p["id"] not in exclude_ids]
+    cands = [p for p in ok if can_audit(p, auditee, today)] or [p for p in ok if is_peer(p, auditee, today)]
+    if not cands:
+        return None
+    best = min(load.get(c["id"], 0) for c in cands)
+    return rng.choice([c for c in cands if load.get(c["id"], 0) == best])["id"]

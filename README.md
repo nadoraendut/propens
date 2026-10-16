@@ -29,7 +29,13 @@ Tests: `pytest`
 5. On approval, auditees and auditors are e-mailed.
 6. Auditee enters date/time/venue → auditor is notified; both get reminders.
 7. Auditor completes the **PRO-PENS rubric** (29 items scored 1-5, bilingual, as on the official form), the mandatory overall comments and the classroom-facilities checklist. Only the comments go to the auditee; marks stay with auditor/admin/head (the form's own rule: only the Ketua Pusat Pengajian announces marks).
-8. Admin downloads the Excel (marks + department/campus/workload/band summaries); report page shows the same.
+8. **Low marks (re-audit).** If a lecturer's mark is **below 80** (configurable per semester when it is created), the
+   admin and Head are alerted and the app proposes a second auditor (same grade/seniority rule; never the first auditor).
+   The admin confirms or changes it and submits it to the **Head, who must approve** (or send it back with a reason).
+   Only on approval are the auditee and new auditor e-mailed; the second audit then follows the normal steps.
+   **The second mark replaces the first.** A second mark below the threshold is flagged to admin and Head (no third audit).
+   A semester cannot be closed while a re-audit is unfinished.
+9. Admin downloads the Excel (marks + department/campus/workload/band summaries); report page shows the same.
 
 ## Rules implemented
 * **Quota:** in every department (Bidang), `ceil(active lecturers × min%)`, at least 1, are drawn at random.
@@ -38,7 +44,7 @@ Tests: `pytest`
   (current year − start year). Workload is spread evenly. If nobody qualifies (e.g. the most senior
   person) the row is left without an auditor and the admin must assign one; Verify is blocked until then.
 * Manual auditor overrides that break the rule are allowed but flagged ("Override") and counted in the report.
-* **Marks:** raw = sum of 29 items (max 145); TS = raw x 50/145 (/50); TAS = TS x 2 (/100). TAS is the audit mark.
+* **Marks:** (only the final total average counts; the form's per-section averages are not used) raw = sum of 29 items (max 145); TS = raw x 50/145 (/50); TAS = TS x 2 (/100). TAS is the audit mark.
   Bands (from the form): <60 Sangat Lemah, 60-69 Lemah, 70-79 Memuaskan, 80-89 Baik, 90-100 Cemerlang.
 * **Same-seniority fallback:** if nobody outranks an auditee (e.g. the most senior lecturer), a lecturer with the same
   years of service is used; if there is none, the Head picks the auditor before approving.

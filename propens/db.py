@@ -2,6 +2,34 @@ import sqlite3
 
 from flask import current_app, g
 
+AUDITS_DDL = """
+CREATE TABLE {name} (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    semester_id INTEGER NOT NULL REFERENCES semesters(id) ON DELETE CASCADE,
+    auditee_id INTEGER NOT NULL REFERENCES lecturers(id),
+    auditor_id INTEGER REFERENCES lecturers(id),
+    origin TEXT NOT NULL DEFAULT 'auto',      -- auto | manual
+    session_date TEXT,
+    session_time TEXT,
+    venue TEXT NOT NULL DEFAULT '',
+    reminder_sent_at TEXT,
+    marks REAL,                               -- TAS out of 100
+    feedback TEXT NOT NULL DEFAULT '',
+    completed_at TEXT,
+    faculty TEXT NOT NULL DEFAULT '', program TEXT NOT NULL DEFAULT '',
+    course_code TEXT NOT NULL DEFAULT '', group_no TEXT NOT NULL DEFAULT '',
+    student_count INTEGER, method TEXT NOT NULL DEFAULT '',
+    comment_teaching TEXT NOT NULL DEFAULT '', comment_prof TEXT NOT NULL DEFAULT '',
+    comment_other TEXT NOT NULL DEFAULT '', raw_score REAL,
+    facility_room TEXT NOT NULL DEFAULT '', facility_suggestion TEXT NOT NULL DEFAULT '',
+    round_no INTEGER NOT NULL DEFAULT 1,      -- 1 = normal audit, 2 = re-audit after a low mark
+    reaudit_of INTEGER REFERENCES audits(id),
+    reaudit_state TEXT NOT NULL DEFAULT '',   -- re-audits: proposed | pending_head | changes_requested | approved
+    reaudit_comment TEXT NOT NULL DEFAULT '', -- Head's reason when sending a proposal back
+    reaudit_approved_at TEXT
+);
+"""
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS lecturers (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -32,21 +60,7 @@ CREATE TABLE IF NOT EXISTS semester_lecturers (
     lecturer_id INTEGER NOT NULL REFERENCES lecturers(id) ON DELETE CASCADE,
     PRIMARY KEY (semester_id, lecturer_id)
 );
-CREATE TABLE IF NOT EXISTS audits (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    semester_id INTEGER NOT NULL REFERENCES semesters(id) ON DELETE CASCADE,
-    auditee_id INTEGER NOT NULL REFERENCES lecturers(id),
-    auditor_id INTEGER REFERENCES lecturers(id),
-    origin TEXT NOT NULL DEFAULT 'auto',      -- auto | manual
-    session_date TEXT,
-    session_time TEXT,
-    venue TEXT NOT NULL DEFAULT '',
-    reminder_sent_at TEXT,
-    marks REAL,
-    feedback TEXT NOT NULL DEFAULT '',
-    completed_at TEXT,
-    UNIQUE (semester_id, auditee_id)
-);
+{AUDITS}
 CREATE TABLE IF NOT EXISTS audit_scores (          -- PRO-PENS rubric items 1-29 (score 1-5)
     audit_id INTEGER NOT NULL REFERENCES audits(id) ON DELETE CASCADE,
     item INTEGER NOT NULL,
@@ -79,6 +93,10 @@ CREATE TABLE IF NOT EXISTS emails (
 """
 
 
+SCHEMA = SCHEMA.replace("{AUDITS}", AUDITS_DDL.format(name="IF NOT EXISTS audits").replace(
+    "CREATE TABLE IF NOT EXISTS audits", "CREATE TABLE IF NOT EXISTS audits"))
+
+
 def get_db():
     if "db" not in g:
         g.db = sqlite3.connect(current_app.config["DATABASE"])
@@ -93,22 +111,35 @@ def close_db(_exc=None):
         db.close()
 
 
-# Columns added after the first release; applied to existing databases on start-up.
-NEW_AUDIT_COLUMNS = {
-    "faculty": "TEXT NOT NULL DEFAULT ''", "program": "TEXT NOT NULL DEFAULT ''",
-    "course_code": "TEXT NOT NULL DEFAULT ''", "group_no": "TEXT NOT NULL DEFAULT ''",
-    "student_count": "INTEGER", "method": "TEXT NOT NULL DEFAULT ''",
-    "comment_teaching": "TEXT NOT NULL DEFAULT ''", "comment_prof": "TEXT NOT NULL DEFAULT ''",
-    "comment_other": "TEXT NOT NULL DEFAULT ''", "raw_score": "REAL",
-    "facility_room": "TEXT NOT NULL DEFAULT ''", "facility_suggestion": "TEXT NOT NULL DEFAULT ''",
-}
+def _rebuild_audits(db):
+    """Databases from earlier releases: drop the one-audit-per-lecturer constraint and add new columns.
+
+    Standard SQLite table rebuild, with foreign keys off so child rows (scores) are untouched.
+    """
+    old_cols = [r["name"] for r in db.execute("PRAGMA table_info(audits)")]
+    db.commit()
+    db.execute("PRAGMA foreign_keys = OFF")
+    try:
+        db.execute("DROP TABLE IF EXISTS audits_new")
+        db.execute(AUDITS_DDL.format(name="audits_new"))
+        new_cols = {r["name"] for r in db.execute("PRAGMA table_info(audits_new)")}
+        cols = ", ".join(c for c in old_cols if c in new_cols)
+        db.execute(f"INSERT INTO audits_new ({cols}) SELECT {cols} FROM audits")
+        db.execute("DROP TABLE audits")
+        db.execute("ALTER TABLE audits_new RENAME TO audits")
+        db.commit()
+    finally:
+        db.execute("PRAGMA foreign_keys = ON")
 
 
 def init_db():
     db = get_db()
     db.executescript(SCHEMA)
-    have = {r["name"] for r in db.execute("PRAGMA table_info(audits)")}
-    for col, ddl in NEW_AUDIT_COLUMNS.items():
-        if col not in have:
-            db.execute(f"ALTER TABLE audits ADD COLUMN {col} {ddl}")
+    sql = db.execute("SELECT sql FROM sqlite_master WHERE name='audits'").fetchone()["sql"]
+    if "UNIQUE (semester_id, auditee_id)" in sql or "round_no" not in sql:
+        _rebuild_audits(db)
+    have = {r["name"] for r in db.execute("PRAGMA table_info(semesters)")}
+    if "reaudit_below" not in have:   # marks below this trigger a re-audit by a different auditor
+        db.execute("ALTER TABLE semesters ADD COLUMN reaudit_below REAL NOT NULL DEFAULT 80")
+    db.execute("CREATE UNIQUE INDEX IF NOT EXISTS audits_one_per_round ON audits (semester_id, auditee_id, round_no)")
     db.commit()

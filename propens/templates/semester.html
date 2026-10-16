@@ -36,9 +36,9 @@ Flow: load list → generate → admin verifies → Head of Faculty approves →
 {% else %}<tr><td class="mut">Upload a lecturer list first.</td></tr>{% endfor %}</table></div></div>
 
 <div class="card"><h2>Audit list ({{ audits|length }})</h2><div class="scroll"><table>
-<tr><th>Auditee</th><th>Gred</th><th>Years</th><th>Bidang</th><th>Auditor</th><th>Rule</th><th>Session</th><th>Marks</th>{% if editable %}<th></th>{% endif %}</tr>
+<tr><th>Auditee</th><th>Round</th><th>Gred</th><th>Years</th><th>Bidang</th><th>Auditor</th><th>Rule</th><th>Session</th><th>Marks</th>{% if editable %}<th></th>{% endif %}</tr>
 {% for a in audits %}<tr>
-<td>{{ a.ee_name }}<br><span class="mut">{{ a.ee_staff }}</span></td><td>{{ a.ee_grade }}</td><td>{{ a.ee_start|years }}</td><td>{{ a.ee_bidang }}</td>
+<td>{{ a.ee_name }}<br><span class="mut">{{ a.ee_staff }}</span></td><td>{{ 'Re-audit' if a.round_no==2 else '1' }}</td><td>{{ a.ee_grade }}</td><td>{{ a.ee_start|years }}</td><td>{{ a.ee_bidang }}</td>
 <td>{% if editable %}<form method="post" action="{{ url_for('main.audit_edit', aid=a.id) }}" class="row"><input type="hidden" name="csrf" value="{{ csrf }}">
 <select name="auditor_id"><option value="">— none —</option>{% for p in pool if p.id!=a.auditee_id %}<option value="{{ p.id }}" {{ 'selected' if p.id==a.auditor_id }}>{{ p.name }} ({{ p.grade }}, {{ p.start_date|years }}y)</option>{% endfor %}</select><button class="sec">Save</button></form>
 {% else %}{{ a.er_name or '—' }}{% if a.er_name %}<br><span class="mut">{{ a.er_grade }}, {{ a.er_start|years }}y</span>{% endif %}{% endif %}</td>
@@ -53,6 +53,24 @@ Flow: load list → generate → admin verifies → Head of Faculty approves →
 <div><label>Add auditee</label><select name="auditee_id">{% for p in candidates %}<option value="{{ p.id }}">{{ p.name }} — {{ p.bidang }} ({{ p.grade }})</option>{% endfor %}</select></div>
 <div><label>Auditor</label><select name="auditor_id"><option value="">— none —</option>{% for p in pool %}<option value="{{ p.id }}">{{ p.name }} ({{ p.grade }}, {{ p.start_date|years }}y)</option>{% endfor %}</select></div>
 <button>Add</button></form>{% endif %}</div>
+
+{% if reaudits %}<div class="card"><h2>Re-audits (final mark below {{ '%g'|format(sem.reaudit_below) }})</h2>
+<p class="mut">The second mark replaces the first. The second auditor must differ from the first and be approved by the Head of Faculty.</p>
+<div class="scroll"><table><tr><th>Auditee</th><th>First mark / auditor</th><th>Second auditor</th><th>Status</th></tr>
+{% for r in reaudits %}{% set a = r.a %}<tr>
+<td>{{ a.ee_name }}<br><span class="mut">{{ a.ee_staff }}</span></td>
+<td>{{ r.first_marks }} <span class="mut">/ {{ r.first_auditor }}</span></td>
+<td>{% if role=='admin' and a.reaudit_state in ['proposed','changes_requested'] %}
+<form method="post" action="{{ url_for('main.reaudit_submit', aid=a.id) }}" class="row"><input type="hidden" name="csrf" value="{{ csrf }}">
+<select name="auditor_id" required><option value="">— choose —</option>{% for p in r.options %}<option value="{{ p.id }}" {{ 'selected' if p.id==a.auditor_id }}>{{ p.name }} ({{ p.grade }}, {{ p.start_date|years }}y)</option>{% endfor %}</select>
+<button>Submit to Head</button></form>
+{% elif role=='head' and a.reaudit_state=='pending_head' %}
+<form method="post" action="{{ url_for('main.reaudit_decision', aid=a.id) }}"><input type="hidden" name="csrf" value="{{ csrf }}">
+<b>{{ a.er_name }}</b> ({{ a.er_grade }}, {{ a.er_start|years }}y)<br><input name="comment" placeholder="Reason (required to send back)" style="width:100%;margin:6px 0">
+<button name="action" value="approve">Approve</button> <button name="action" value="changes" class="danger">Send back</button></form>
+{% else %}{{ a.er_name or '—' }}{% endif %}</td>
+<td><span class="badge">{{ a.reaudit_state.replace('_',' ') }}</span>{% if a.reaudit_comment %}<br><span class="bad">{{ a.reaudit_comment }}</span>{% endif %}
+{% if a.completed_at %}<br>Second mark: {{ a.marks }}{% if a.marks < sem.reaudit_below %} <b class="bad">still below {{ '%g'|format(sem.reaudit_below) }}</b>{% endif %}{% endif %}</td></tr>{% endfor %}</table></div></div>{% endif %}
 
 <div class="card"><h2>Lecturer list</h2><div class="scroll"><table>
 <tr><th>Staff ID</th><th>Name</th><th>Gred</th><th>Bidang</th><th>Start</th><th>Years</th><th>Campus</th><th>Status</th><th>Email</th></tr>

@@ -178,9 +178,12 @@ def semester_new():
             name = request.form["name"].strip()
             if not name:
                 raise ValueError("Name is required")
+            below = float(request.form.get("reaudit_below") or 80)
+            if not 0 < below <= 100:
+                raise ValueError("Re-audit threshold must be between 0 and 100")
             db = get_db()
-            cur = db.execute("INSERT INTO semesters (name,min_percent,created_at) VALUES (?,?,?)",
-                             (name, pct, services.now()))
+            cur = db.execute("INSERT INTO semesters (name,min_percent,reaudit_below,created_at) VALUES (?,?,?,?)",
+                             (name, pct, below, services.now()))
             db.commit()
             return back(cur.lastrowid)
         except Exception as exc:
@@ -198,9 +201,27 @@ def semester(sid):
     return render_template(
         "semester.html", sem=sem, audits=audits, people=people,
         quota=services.department_quota(sem), status=services.rule_statuses(sid),
+        reaudits=_reaudit_view(sid),
         editable=g.user["role"] == "admin" and sem["state"] in services.EDITABLE_STATES,
         candidates=[p for p in people if logic.is_eligible(p["status"]) and p["id"] not in audited_ids],
         pool=[p for p in people if logic.is_eligible(p["status"])])
+
+
+def _reaudit_view(sid):
+    """Re-audit rows plus the first audit's marks/auditor and who may be picked as second auditor."""
+    db = get_db()
+    out = []
+    for a in services.reaudit_rows(sid):
+        first = services.first_audit(a)
+        used = {r["auditor_id"] for r in db.execute(
+            "SELECT auditor_id FROM audits WHERE semester_id=? AND auditee_id=? AND round_no=1",
+            (sid, a["auditee_id"]))}
+        options = [l for l in services.semester_lecturers(sid) if logic.is_eligible(l["status"])
+                   and l["id"] != a["auditee_id"] and l["id"] not in used]
+        first_auditor = db.execute("SELECT name FROM lecturers WHERE id=?", (first["auditor_id"],)).fetchone()
+        out.append({"a": a, "first_marks": first["marks"], "first_auditor": first_auditor["name"],
+                    "options": options})
+    return out
 
 
 @bp.route("/semesters/<int:sid>/upload", methods=["POST"])
@@ -292,6 +313,9 @@ def decision(sid):
 @login_required("admin")
 def close(sid):
     sem = get_semester(sid)
+    if any(not a["completed_at"] for a in services.reaudit_rows(sid)):
+        flash("Finish or resolve the re-audits before closing the semester.", "error")
+        return back(sid)
     if sem["state"] == "approved":
         db = get_db()
         db.execute("UPDATE semesters SET state='closed' WHERE id=?", (sid,))
@@ -389,7 +413,7 @@ def my_audits():
                      er.name er_name, er.staff_id er_staff
               FROM audits a JOIN semesters s ON s.id=a.semester_id
               JOIN lecturers ee ON ee.id=a.auditee_id LEFT JOIN lecturers er ON er.id=a.auditor_id
-              WHERE s.state IN ('approved','closed') AND """
+              WHERE s.state IN ('approved','closed') AND (a.round_no=1 OR a.reaudit_state='approved') AND """
     as_auditee = db.execute(base + "a.auditee_id=? ORDER BY a.id DESC", (g.user["id"],)).fetchall()
     as_auditor = db.execute(base + "a.auditor_id=? ORDER BY a.id DESC", (g.user["id"],)).fetchall()
     return render_template("my_audits.html", as_auditee=as_auditee, as_auditor=as_auditor)
@@ -401,8 +425,8 @@ def schedule(aid):
     audit = get_audit(aid)
     if g.user["id"] != audit["auditee_id"] and g.user["role"] != "admin":
         abort(403)
-    if audit["completed_at"]:
-        flash("This audit is already completed.", "error")
+    if audit["completed_at"] or not services.is_active(audit):
+        flash("This audit cannot be scheduled right now.", "error")
         return redirect(url_for("main.my_audits"))
     try:
         d = logic.parse_date(request.form["session_date"])
@@ -425,7 +449,8 @@ def rubric_form(aid):
     is_auditor = g.user["id"] == audit["auditor_id"]
     if not (is_auditor or g.user["role"] in ("admin", "head")):
         abort(403)
-    editable = is_auditor and sem["state"] == "approved" and not audit["completed_at"]
+    editable = (is_auditor and sem["state"] == "approved" and not audit["completed_at"]
+                and services.is_active(audit))
     if request.method == "POST":
         if not editable:
             abort(403)
@@ -454,6 +479,41 @@ def _rubric_ctx(audit, sem, scores, facility, editable, values):
     return dict(audit=audit, sem=sem, ee=ee, er=er, scores=scores, facility=facility, editable=editable,
                 v=values, r=result, indicator=rubric.indicator(result["tas"]) if result["complete"] else "",
                 rubric=rubric)
+
+
+# ------------------------------------------------------- re-audits (low marks)
+@bp.route("/audits/<int:aid>/reaudit/submit", methods=["POST"])
+@login_required("admin")
+def reaudit_submit(aid):
+    audit = get_audit(aid)
+    try:
+        services.submit_reaudit(audit, int(request.form.get("auditor_id") or 0))
+        if services.rule_statuses(audit["semester_id"]).get(aid) == "override":
+            flash("Sent to the Head of Faculty. Note: this auditor does not outrank the auditee "
+                  "(manual override).", "warn")
+        else:
+            flash("Second auditor sent to the Head of Faculty for approval.", "ok")
+    except ValueError as exc:
+        flash(str(exc), "error")
+    return back(audit["semester_id"])
+
+
+@bp.route("/audits/<int:aid>/reaudit/decision", methods=["POST"])
+@login_required("head")
+def reaudit_decision(aid):
+    audit = get_audit(aid)
+    approve_it = request.form.get("action") == "approve"
+    comment = request.form.get("comment", "").strip()
+    if not approve_it and not comment:
+        flash("Please say what should change.", "error")
+        return back(audit["semester_id"])
+    try:
+        services.decide_reaudit(audit, approve_it, comment)
+        flash("Approved. The auditee and new auditor have been e-mailed." if approve_it
+              else "Sent back to the admin.", "ok")
+    except ValueError as exc:
+        flash(str(exc), "error")
+    return back(audit["semester_id"])
 
 
 # ---------------------------------------------------- reports and exports

@@ -3,4 +3,6 @@
 <form method="post"><input type="hidden" name="csrf" value="{{ csrf }}">
 <label>Semester name</label><input name="name" placeholder="e.g. Sem 1 2026/2027" required style="width:100%">
 <label>Minimum % of lecturers to audit (applied to every department)</label><input name="min_percent" type="number" step="0.1" min="0.1" max="100" value="20" required>
+<label>Re-audit if the final mark (out of 100) is <b>below</b></label><input name="reaudit_below" type="number" step="0.1" min="1" max="100" value="80" required>
+<p class="mut">A lecturer who scores below this is re-audited by a different auditor in the same semester. Pending your department's confirmation of the correct value.</p>
 <p><button>Create</button></p></form></div>{% endblock %}
