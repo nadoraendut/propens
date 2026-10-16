@@ -134,13 +134,29 @@ def audit_rows(semester_id):
            WHERE a.semester_id=? ORDER BY ee.bidang, ee.name""", (semester_id,)).fetchall()
 
 
-def rule_ok(audit):
-    """Does this audit's auditor satisfy the grade / seniority rule?"""
-    if audit["auditor_id"] is None:
-        return False
-    ee = {"id": audit["auditee_id"], "grade": audit["ee_grade"], "start_date": audit["ee_start"]}
-    er = {"id": audit["auditor_id"], "grade": audit["er_grade"], "start_date": audit["er_start"]}
-    return logic.can_audit(er, ee)
+def rule_statuses(semester_id):
+    """{audit_id: 'ok' | 'peer' | 'override' | 'none'} for every audit in the semester.
+
+    ok       auditor outranks the auditee (grade) or is more senior (years)
+    peer     nobody outranks the auditee, and the auditor has the same years of service
+    override any other manual pick
+    none     no auditor yet
+    """
+    pool = [dict(l) for l in semester_lecturers(semester_id) if logic.is_eligible(l["status"])]
+    out = {}
+    for a in audit_rows(semester_id):
+        if a["auditor_id"] is None:
+            out[a["id"]] = "none"
+            continue
+        ee = {"id": a["auditee_id"], "grade": a["ee_grade"], "start_date": a["ee_start"]}
+        er = {"id": a["auditor_id"], "grade": a["er_grade"], "start_date": a["er_start"]}
+        if logic.can_audit(er, ee):
+            out[a["id"]] = "ok"
+        elif logic.is_peer(er, ee) and not any(logic.can_audit(p, ee) for p in pool):
+            out[a["id"]] = "peer"
+        else:
+            out[a["id"]] = "override"
+    return out
 
 
 def department_quota(semester):
@@ -194,17 +210,17 @@ def submit_to_head(semester):
     audits = audit_rows(semester["id"])
     if not audits:
         raise ValueError("The audit list is empty.")
-    if any(a["auditor_id"] is None for a in audits):
-        raise ValueError("Every auditee must have an auditor before the list can be verified.")
     if not all(d["ok"] for d in department_quota(semester)):
         raise ValueError("Some departments are below the minimum percentage.")
     db = get_db()
     db.execute("UPDATE semesters SET state='pending_head', verified_at=?, head_comment='' WHERE id=?",
                (now(), semester["id"]))
+    open_rows = sum(1 for a in audits if a["auditor_id"] is None)
     for head in users_with_role("head"):
         tell(head, f"Audit list for {semester['name']} awaits your approval",
              f"The admin has verified the audit list for {semester['name']}. "
-             f"Please approve it or request changes.", f"/semesters/{semester['id']}")
+             + (f"{open_rows} auditee(s) have no auditor and need you to pick one. " if open_rows else "")
+             + "Please approve it or request changes.", f"/semesters/{semester['id']}")
     db.commit()
 
 
@@ -220,6 +236,8 @@ def request_changes(semester, comment):
 
 def approve(semester):
     """Head approves; auditees and auditors are e-mailed."""
+    if any(a["auditor_id"] is None for a in audit_rows(semester["id"])):
+        raise ValueError("Pick an auditor for every auditee before approving.")
     db = get_db()
     db.execute("UPDATE semesters SET state='approved', approved_at=?, head_comment='' WHERE id=?",
                (now(), semester["id"]))
@@ -334,7 +352,8 @@ def report(semester):
         "bands": bands,
         "workload": [{"staff_id": k[0], "name": k[1], "assigned": v[0], "completed": v[1]}
                      for k, v in sorted(load.items(), key=lambda kv: -kv[1][0])],
-        "rule_violations": sum(1 for a in audits if not rule_ok(a)),
+        "rule_violations": sum(1 for v in rule_statuses(semester["id"]).values() if v == "override"),
+        "peer_pairs": sum(1 for v in rule_statuses(semester["id"]).values() if v == "peer"),
     }
 
 

@@ -74,7 +74,7 @@ def test_full_workflow(app):
         assert (quota["CS"]["selected"], quota["Math"]["selected"], quota["Physics"]["selected"]) == (2, 1, 1)
         assert all(q["ok"] for q in quota.values())
         audits = services.audit_rows(1)
-        assert all(services.rule_ok(a) for a in audits)
+        assert all(v in ('ok', 'peer', 'none') for v in services.rule_statuses(1).values())
         assert not any(a["ee_staff"] == "S900" for a in audits)      # not Active
         assert get_db().execute("SELECT COUNT(*) FROM notifications WHERE lecturer_id=1").fetchone()[0] == 1
 
@@ -148,3 +148,27 @@ def test_access_control_and_csrf(app):
     assert c.post("/login", data={"staff_id": "ADM", "password": "pw123456"}).status_code == 400
     head = client_for(app, "HOF")
     assert head.get("/lecturers").status_code == 403
+
+
+def test_head_picks_auditor_for_most_senior(app):
+    admin, head = client_for(app, "ADM"), client_for(app, "HOF")
+    post(admin, "/semesters/new", name="S", min_percent="100")
+    csv_ = ("Staff ID,Staff Name,Gred Jawatan,Bidang,Start of Employment,Campus,Status,Email\n"
+            "A,Senior,DS54,CS,1990-01-01,N,Active,a@u.edu\nB,Junior,DS45,CS,2015-01-01,N,Active,b@u.edu\n")
+    with admin.session_transaction() as s:
+        s["csrf"] = "t"
+    admin.post("/semesters/1/upload", content_type="multipart/form-data",
+               data={"csrf": "t", "file": (io.BytesIO(csv_.encode()), "l.csv")})
+    post(admin, "/semesters/1/generate")
+    r = post(admin, "/semesters/1/verify")
+    assert b"sent to the Head" in r.data
+    with app.app_context():
+        senior = [a for a in services.audit_rows(1) if a["ee_staff"] == "A"][0]
+        assert senior["auditor_id"] is None
+        b_id = get_db().execute("SELECT id FROM lecturers WHERE staff_id='B'").fetchone()[0]
+    r = post(head, "/semesters/1/decision", action="approve")
+    assert b"Pick an auditor" in r.data
+    post(head, f"/audits/{senior['id']}/head-assign", auditor_id=b_id)
+    post(head, "/semesters/1/decision", action="approve")
+    with app.app_context():
+        assert get_db().execute("SELECT state FROM semesters").fetchone()[0] == "approved"

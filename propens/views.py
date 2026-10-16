@@ -197,7 +197,7 @@ def semester(sid):
     audited_ids = {a["auditee_id"] for a in audits}
     return render_template(
         "semester.html", sem=sem, audits=audits, people=people,
-        quota=services.department_quota(sem), rule_ok=services.rule_ok,
+        quota=services.department_quota(sem), status=services.rule_statuses(sid),
         editable=g.user["role"] == "admin" and sem["state"] in services.EDITABLE_STATES,
         candidates=[p for p in people if logic.is_eligible(p["status"]) and p["id"] not in audited_ids],
         pool=[p for p in people if logic.is_eligible(p["status"])])
@@ -273,8 +273,11 @@ def decision(sid):
         flash("This list is not awaiting approval.", "error")
         return back(sid)
     if request.form.get("action") == "approve":
-        services.approve(sem)
-        flash("Approved. Auditees and auditors have been e-mailed.", "ok")
+        try:
+            services.approve(sem)
+            flash("Approved. Auditees and auditors have been e-mailed.", "ok")
+        except ValueError as exc:
+            flash(str(exc), "error")
     else:
         comment = request.form.get("comment", "").strip()
         if not comment:
@@ -345,9 +348,34 @@ def audit_delete(aid):
     return back(sem["id"])
 
 
+@bp.route("/audits/<int:aid>/head-assign", methods=["POST"])
+@login_required("head")
+def head_assign(aid):
+    """Head picks an auditor for a row the app could not fill (e.g. the most senior lecturer)."""
+    audit = get_audit(aid)
+    sem = get_semester(audit["semester_id"])
+    if sem["state"] != "pending_head" or audit["auditor_id"] is not None:
+        flash("Only rows without an auditor can be assigned while awaiting approval.", "error")
+        return back(sem["id"])
+    pick = request.form.get("auditor_id")
+    ok = pick and get_db().execute(
+        """SELECT 1 FROM semester_lecturers sl JOIN lecturers l ON l.id=sl.lecturer_id
+           WHERE sl.semester_id=? AND l.id=? AND lower(l.status)='active' AND l.id<>?""",
+        (sem["id"], pick, audit["auditee_id"])).fetchone()
+    if not ok:
+        flash("Choose an active lecturer from the list.", "error")
+    else:
+        db = get_db()
+        db.execute("UPDATE audits SET auditor_id=?, origin='manual' WHERE id=?", (int(pick), aid))
+        db.commit()
+        flash("Auditor assigned.", "ok")
+    return back(sem["id"])
+
+
 def warn_if_invalid(sid, auditee_id):
+    st = services.rule_statuses(sid)
     a = next(x for x in services.audit_rows(sid) if x["auditee_id"] == auditee_id)
-    if a["auditor_id"] and not services.rule_ok(a):
+    if a["auditor_id"] and st[a["id"]] == "override":
         flash(f"Warning: {a['er_name']} is neither higher in grade nor more senior than {a['ee_name']}. "
               "Saved as a manual override.", "warn")
 

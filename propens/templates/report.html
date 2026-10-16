@@ -10,6 +10,7 @@
 <div class="card stat"><b>{{ r.not_scheduled }}</b>no date yet</div>
 <div class="card stat"><b>{{ r.average if r.average is not none else '—' }}</b>average marks</div>
 <div class="card stat"><b>{{ r.highest if r.highest is not none else '—' }} / {{ r.lowest if r.lowest is not none else '—' }}</b>highest / lowest</div>
+{% if r.peer_pairs %}<div class="card stat"><b>{{ r.peer_pairs }}</b>same-seniority pairings</div>{% endif %}
 {% if r.rule_violations %}<div class="card stat bad"><b>{{ r.rule_violations }}</b>auditor rule overrides</div>{% endif %}</div>
 <div class="card"><h2>By department</h2><div class="scroll"><table><tr><th>Bidang</th><th>Active</th><th>Required</th><th>Selected</th><th>Completed</th><th>Progress</th><th>Avg marks</th></tr>
 {% for q in r.quota %}<tr><td>{{ q.dept }}</td><td>{{ q.total }}</td><td>{{ q.required }}</td><td class="{{ 'good' if q.ok else 'bad' }}">{{ q.selected }}</td><td>{{ q.completed }}</td>

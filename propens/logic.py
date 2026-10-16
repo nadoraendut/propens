@@ -62,6 +62,15 @@ def can_audit(auditor, auditee, today=None):
         auditee["start_date"], today)
 
 
+def is_peer(auditor, auditee, today=None):
+    """Same seniority (equal years of service), different person.
+
+    Only used as a fallback for people nobody outranks, e.g. the most senior lecturer.
+    """
+    return (auditor["id"] != auditee["id"] and
+            years_of_service(auditor["start_date"], today) == years_of_service(auditee["start_date"], today))
+
+
 def required_count(total, percent):
     """Minimum number to audit in a group of `total` at `percent` (rounded up, min 1)."""
     if total <= 0:
@@ -87,10 +96,14 @@ def select_auditees(by_department, percent, rng):
 def assign_auditors(auditees, pool, rng, today=None):
     """Pair each auditee with a valid auditor, spreading the workload evenly.
 
-    Most constrained auditees (fewest valid auditors) are matched first.
-    Returns {auditee_id: auditor_id or None}; None means nobody qualifies.
+    Most constrained auditees (fewest valid auditors) are matched first. When nobody
+    outranks an auditee, a peer with the same years of service is used instead.
+    Returns {auditee_id: auditor_id or None}; None means the Head must pick one.
     """
-    options = {a["id"]: [p for p in pool if can_audit(p, a, today)] for a in auditees}
+    options = {}
+    for a in auditees:
+        strict = [p for p in pool if can_audit(p, a, today)]
+        options[a["id"]] = strict or [p for p in pool if is_peer(p, a, today)]
     load = {p["id"]: 0 for p in pool}
     result = {}
     for a in sorted(auditees, key=lambda x: (len(options[x["id"]]), rng.random())):

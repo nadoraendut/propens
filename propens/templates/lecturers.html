@@ -1,5 +1,5 @@
 {% extends "base.html" %}{% block body %}
 <div class="card"><div class="row"><h1 style="flex:1;margin:0">All lecturers</h1>
 <a class="btn" href="{{ url_for('main.lecturer_form') }}">Add lecturer</a></div>
-<div class="scroll"><table><tr><th>Staff ID</th><th>Name</th><th>Gred</th><th>Bidang</th><th>Started</th><th>Years</th><th>Campus</th><th>Status</th><th>Role</th><th></th></tr>
-{% for r in rows %}<tr><td>{{ r.staff_id }}</td><td>{{ r.name }}</td><td>{{ r.grade }}</td><td>{{ r.bidang }}</td><td>{{ r.start_date }}</td><td>{{ r.start_date|years }}</td><td>{{ r.campus }}</td><td>{{ r.status }}</td><td>{{ r.role }}</td><td><a href="{{ url_for('main.lecturer_form', lid=r.id) }}">Edit</a></td></tr>{% endfor %}</table></div></div>{% endblock %}
+<div class="scroll"><table><tr><th>Staff ID</th><th>Name</th><th>Gred</th><th>Bidang</th><th>Started</th><th>Years</th><th>Campus</th><th>Status</th><th>Email</th><th>Role</th><th></th></tr>
+{% for r in rows %}<tr><td>{{ r.staff_id }}</td><td>{{ r.name }}</td><td>{{ r.grade }}</td><td>{{ r.bidang }}</td><td>{{ r.start_date }}</td><td>{{ r.start_date|years }}</td><td>{{ r.campus }}</td><td>{{ r.status }}</td><td>{{ r.email }}</td><td>{{ r.role }}</td><td><a href="{{ url_for('main.lecturer_form', lid=r.id) }}">Edit</a></td></tr>{% endfor %}</table></div></div>{% endblock %}

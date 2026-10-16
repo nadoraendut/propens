@@ -61,6 +61,11 @@ def test_assignment_respects_rule_and_balances_load():
     assert max(loads) - min(loads) <= 1 or len(set(out.values())) >= 3
 
 
-def test_most_senior_person_gets_no_auditor():
+def test_most_senior_person_gets_same_seniority_peer():
+    pool = [L(1, "DS54", "2000"), L(2, "DS45", "2015"), L(3, "DS52", "2000")]
+    assert logic.assign_auditors([pool[0]], pool, random.Random(1), TODAY) == {1: 3}
+
+
+def test_no_peer_leaves_row_for_head():
     pool = [L(1, "DS54", "2000"), L(2, "DS45", "2015")]
     assert logic.assign_auditors([pool[0]], pool, random.Random(1), TODAY) == {1: None}

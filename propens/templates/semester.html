@@ -42,7 +42,8 @@ Flow: load list → generate → admin verifies → Head of Faculty approves →
 <td>{% if editable %}<form method="post" action="{{ url_for('main.audit_edit', aid=a.id) }}" class="row"><input type="hidden" name="csrf" value="{{ csrf }}">
 <select name="auditor_id"><option value="">— none —</option>{% for p in pool if p.id!=a.auditee_id %}<option value="{{ p.id }}" {{ 'selected' if p.id==a.auditor_id }}>{{ p.name }} ({{ p.grade }}, {{ p.start_date|years }}y)</option>{% endfor %}</select><button class="sec">Save</button></form>
 {% else %}{{ a.er_name or '—' }}{% if a.er_name %}<br><span class="mut">{{ a.er_grade }}, {{ a.er_start|years }}y</span>{% endif %}{% endif %}</td>
-<td class="{{ 'good' if rule_ok(a) else 'bad' }}">{{ 'OK' if rule_ok(a) else ('No auditor' if not a.auditor_id else 'Override') }}</td>
+<td class="{{ 'good' if status[a.id] in ['ok','peer'] else 'bad' }}">{{ {'ok':'OK','peer':'Peer (same seniority)','none':'Head to pick','override':'Override'}[status[a.id]] }}
+{% if role=='head' and sem.state=='pending_head' and not a.auditor_id %}<form method="post" action="{{ url_for('main.head_assign', aid=a.id) }}"><input type="hidden" name="csrf" value="{{ csrf }}"><select name="auditor_id">{% for p in pool if p.id!=a.auditee_id %}<option value="{{ p.id }}">{{ p.name }} ({{ p.grade }}, {{ p.start_date|years }}y)</option>{% endfor %}</select> <button class="sec">Assign</button></form>{% endif %}</td>
 <td>{{ a.session_date or '—' }} {{ a.session_time or '' }}</td>
 <td>{% if role=='admin' and a.completed_at %}{{ a.marks }}{% elif a.completed_at %}Done{% else %}—{% endif %}</td>
 {% if editable %}<td><form method="post" action="{{ url_for('main.audit_delete', aid=a.id) }}" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="danger">Remove</button></form></td>{% endif %}
@@ -54,6 +55,6 @@ Flow: load list → generate → admin verifies → Head of Faculty approves →
 <button>Add</button></form>{% endif %}</div>
 
 <div class="card"><h2>Lecturer list</h2><div class="scroll"><table>
-<tr><th>Staff ID</th><th>Name</th><th>Gred</th><th>Bidang</th><th>Start</th><th>Years</th><th>Campus</th><th>Status</th></tr>
-{% for p in people %}<tr><td>{{ p.staff_id }}</td><td>{{ p.name }}</td><td>{{ p.grade }}</td><td>{{ p.bidang }}</td><td>{{ p.start_date }}</td><td>{{ p.start_date|years }}</td><td>{{ p.campus }}</td><td>{{ p.status }}</td></tr>{% endfor %}</table></div></div>
+<tr><th>Staff ID</th><th>Name</th><th>Gred</th><th>Bidang</th><th>Start</th><th>Years</th><th>Campus</th><th>Status</th><th>Email</th></tr>
+{% for p in people %}<tr><td>{{ p.staff_id }}</td><td>{{ p.name }}</td><td>{{ p.grade }}</td><td>{{ p.bidang }}</td><td>{{ p.start_date }}</td><td>{{ p.start_date|years }}</td><td>{{ p.campus }}</td><td>{{ p.status }}</td><td>{{ p.email }}</td></tr>{% endfor %}</table></div></div>
 {% endblock %}
