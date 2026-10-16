@@ -185,3 +185,52 @@ def test_90_and_above_is_cemerlang(app, approved):
     # the lecturer being rated never sees it
     ee = client_for(app, first["ee_staff"], first["ee_staff"]).get("/my-audits").data.decode()
     assert "Cemerlang" not in ee.split("Audits where I am the auditor")[0]
+
+
+def test_release_flow_and_cemerlang_alert(app, approved):
+    admin, head, first = approved
+    ee = client_for(app, first["ee_staff"], first["ee_staff"])
+    er = client_for(app, first["er_staff"], first["er_staff"])
+    score_all(er, first["id"], 5)                                           # 100 -> Cemerlang
+    with app.app_context():
+        other = [a for a in services.audit_rows(1) if a["id"] != first["id"]][0]
+    # before release: the lecturer sees no mark and has no Cemerlang alert
+    mine = ee.get("/my-audits").data.decode().split("Audits where I am the auditor")[0]
+    assert "Your result" not in mine and "100.0" not in mine
+    with app.app_context():
+        assert get_db().execute("SELECT COUNT(*) FROM notifications WHERE lecturer_id=? AND message LIKE 'Congratulations%'",
+                                (first["auditee_id"],)).fetchone()[0] == 0
+
+    # release needs the AJK step first; non-admin cannot do either
+    assert b"AJK Induk first" in post(admin, "/semesters/1/release").data
+    assert head.post("/semesters/1/ajk", data={"csrf": "t"}).status_code == 403
+    post(admin, "/semesters/1/ajk")
+    # one audit still unfinished -> needs explicit confirmation
+    assert b"not finished" in post(admin, "/semesters/1/release").data
+    post(admin, "/semesters/1/release", allow_incomplete="on")
+    with app.app_context():
+        db = get_db()
+        assert db.execute("SELECT released_at FROM semesters").fetchone()[0]
+        n = lambda like: db.execute("SELECT COUNT(*) FROM notifications WHERE lecturer_id=? AND message LIKE ?",
+                                    (first["auditee_id"], like)).fetchone()[0]
+        assert n("Congratulations%") == 1 and n("Your PRO-PENS result%") == 0       # Cemerlang gets the special alert only
+        assert db.execute("SELECT COUNT(*) FROM emails WHERE to_addr=? AND subject LIKE 'Your PRO-PENS result%'",
+                          (first["ee_email"],)).fetchone()[0] == 1
+        assert "100" not in db.execute("SELECT body FROM emails WHERE subject LIKE 'Your PRO-PENS result%'").fetchone()[0]
+        # the unfinished lecturer got nothing
+        assert db.execute("SELECT COUNT(*) FROM notifications WHERE lecturer_id=? AND message LIKE '%result%'",
+                          (other["auditee_id"],)).fetchone()[0] == 0
+    # now the lecturer sees the result; the unfinished one does not
+    assert "Your result: 100.0 / 100" in ee.get("/my-audits").data.decode()
+    assert "Cemerlang" in ee.get("/my-audits").data.decode()
+    assert b"already released" in post(admin, "/semesters/1/release").data
+
+
+def test_release_shows_only_final_mark_after_reaudit(app, approved):
+    admin, head, first, rid, chosen = low_then_approve(app, approved)
+    score_all(client_for(app, chosen["staff_id"], chosen["staff_id"]), rid, 4)       # re-audit: 80.0
+    ee = client_for(app, first["ee_staff"], first["ee_staff"])
+    post(admin, "/semesters/1/ajk")
+    r = post(admin, "/semesters/1/release", allow_incomplete="on")
+    page = ee.get("/my-audits").data.decode().split("Audits where I am the auditor")[0]
+    assert "Your result: 80.0 / 100" in page and "40.0" not in page                   # first (40) never shown

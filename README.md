@@ -35,8 +35,12 @@ Tests: `pytest`
    Only on approval are the auditee and new auditor e-mailed; the second audit then follows the normal steps.
    **The second mark replaces the first.** A second mark below the threshold is flagged to admin and Head (no third audit).
    A semester cannot be closed while a re-audit is unfinished.
-9. **Cemerlang (final mark 90 or more):** admin and Head are alerted (in-app and e-mail) when the audit is submitted; the lecturer is not told the mark.
-10. Admin downloads the Excel (marks + department/campus/workload/band summaries); report page shows the same.
+9. **Cemerlang (final mark 90 or more):** admin and Head are alerted (in-app and e-mail) when the audit is submitted; the lecturer is alerted only when the admin releases the marks.
+10. **Release of marks.** After the results go to AJK Induk, the admin records "Submitted to AJK Induk" and then presses
+    **Release marks** (semester page > Results). Until then lecturers see no mark. On release every lecturer with a finished
+    final audit is alerted and sees their own mark and band under My audits; Cemerlang lecturers get a congratulatory in-app
+    alert. Releasing with unfinished audits needs an explicit tick; those lecturers see nothing. Release cannot be undone.
+11. Admin downloads the Excel (marks + department/campus/workload/band summaries); report page shows the same.
 
 ## Rules implemented
 * **Quota:** in every department (Bidang), `ceil(active lecturers × min%)`, at least 1, are drawn at random.

@@ -139,7 +139,10 @@ def init_db():
     if "UNIQUE (semester_id, auditee_id)" in sql or "round_no" not in sql:
         _rebuild_audits(db)
     have = {r["name"] for r in db.execute("PRAGMA table_info(semesters)")}
-    if "reaudit_below" not in have:   # marks below this trigger a re-audit by a different auditor
-        db.execute("ALTER TABLE semesters ADD COLUMN reaudit_below REAL NOT NULL DEFAULT 80")
+    for col, ddl in (("reaudit_below", "REAL NOT NULL DEFAULT 80"),  # marks below this trigger a re-audit
+                     ("submitted_ajk_at", "TEXT"),                    # admin passed the results to AJK Induk
+                     ("released_at", "TEXT")):                        # admin released marks to lecturers
+        if col not in have:
+            db.execute(f"ALTER TABLE semesters ADD COLUMN {col} {ddl}")
     db.execute("CREATE UNIQUE INDEX IF NOT EXISTS audits_one_per_round ON audits (semester_id, auditee_id, round_no)")
     db.commit()

@@ -54,6 +54,15 @@ Flow: load list → generate → admin verifies → Head of Faculty approves →
 <div><label>Auditor</label><select name="auditor_id"><option value="">— none —</option>{% for p in pool %}<option value="{{ p.id }}">{{ p.name }} ({{ p.grade }}, {{ p.start_date|years }}y)</option>{% endfor %}</select></div>
 <button>Add</button></form>{% endif %}</div>
 
+{% if sem.state in ['approved','closed'] %}<div class="card"><h2>Results</h2>
+<p>Final audits completed: <b>{{ release.done }} / {{ release.total }}</b></p>
+<p>1. Submitted to AJK Induk: {% if sem.submitted_ajk_at %}<b class="good">{{ sem.submitted_ajk_at }}</b>{% elif role=='admin' %}
+<form class="inline" method="post" action="{{ url_for('main.submit_ajk', sid=sem.id) }}"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="sec">Mark as submitted to AJK Induk</button></form>{% else %}<span class="mut">not yet</span>{% endif %}</p>
+<p>2. Marks released to lecturers: {% if sem.released_at %}<b class="good">{{ sem.released_at }}</b>{% elif role=='admin' and sem.submitted_ajk_at %}
+<form class="inline" method="post" action="{{ url_for('main.release', sid=sem.id) }}" onsubmit="return confirm('Release marks to all lecturers? This cannot be undone.')"><input type="hidden" name="csrf" value="{{ csrf }}">
+{% if release.done < release.total %}<label style="display:inline"><input type="checkbox" name="allow_incomplete"> release anyway ({{ release.total - release.done }} unfinished; they will see no result)</label> {% endif %}<button>Release marks</button></form>
+{% else %}<span class="mut">not yet{% if role=='admin' and not sem.submitted_ajk_at %} (record step 1 first){% endif %}</span>{% endif %}</p></div>{% endif %}
+
 {% if reaudits %}<div class="card"><h2>Re-audits (final mark below {{ '%g'|format(sem.reaudit_below) }})</h2>
 <p class="mut">The second mark replaces the first. The second auditor must differ from the first and be approved by the Head of Faculty.</p>
 <div class="scroll"><table><tr><th>Auditee</th><th>First mark / auditor</th><th>Second auditor</th><th>Status</th></tr>

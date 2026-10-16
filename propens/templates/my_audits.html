@@ -2,6 +2,7 @@
 <div class="card"><h1>Audits where I am the auditee</h1>
 {% for a in as_auditee %}<div style="border-top:1px solid var(--line);padding:10px 0">
 <b>{{ a.sem }}</b> — auditor: {{ a.er_name }} ({{ a.er_staff }})
+{% if a.id in results %}<p class="good"><b>Your result: {{ results[a.id][0] }} / 100 — {{ results[a.id][1] }}</b></p>{% endif %}
 {% if a.completed_at %}<p><b>Feedback from your auditor:</b></p><p style="white-space:pre-wrap">{{ a.feedback }}</p>
 {% elif a.state=='approved' %}
 <form method="post" action="{{ url_for('main.schedule', aid=a.id) }}" class="row"><input type="hidden" name="csrf" value="{{ csrf }}">

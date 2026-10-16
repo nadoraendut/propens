@@ -201,7 +201,7 @@ def semester(sid):
     return render_template(
         "semester.html", sem=sem, audits=audits, people=people,
         quota=services.department_quota(sem), status=services.rule_statuses(sid),
-        reaudits=_reaudit_view(sid),
+        reaudits=_reaudit_view(sid), release=services.release_summary(sem),
         editable=g.user["role"] == "admin" and sem["state"] in services.EDITABLE_STATES,
         candidates=[p for p in people if logic.is_eligible(p["status"]) and p["id"] not in audited_ids],
         pool=[p for p in people if logic.is_eligible(p["status"])])
@@ -409,14 +409,22 @@ def warn_if_invalid(sid, auditee_id):
 @login_required()
 def my_audits():
     db = get_db()
-    base = """SELECT a.*, s.name sem, s.state, ee.name ee_name, ee.staff_id ee_staff, ee.bidang ee_bidang,
+    base = """SELECT a.*, s.name sem, s.state, s.released_at, ee.name ee_name, ee.staff_id ee_staff, ee.bidang ee_bidang,
                      er.name er_name, er.staff_id er_staff
               FROM audits a JOIN semesters s ON s.id=a.semester_id
               JOIN lecturers ee ON ee.id=a.auditee_id LEFT JOIN lecturers er ON er.id=a.auditor_id
               WHERE s.state IN ('approved','closed') AND (a.round_no=1 OR a.reaudit_state='approved') AND """
     as_auditee = db.execute(base + "a.auditee_id=? ORDER BY a.id DESC", (g.user["id"],)).fetchall()
     as_auditor = db.execute(base + "a.auditor_id=? ORDER BY a.id DESC", (g.user["id"],)).fetchall()
-    return render_template("my_audits.html", as_auditee=as_auditee, as_auditor=as_auditor)
+    finals = {}
+    results = {}
+    for a in as_auditee:
+        if a["released_at"] and a["completed_at"]:
+            if a["semester_id"] not in finals:
+                finals[a["semester_id"]] = services.final_audit_ids(a["semester_id"])
+            if a["id"] in finals[a["semester_id"]]:
+                results[a["id"]] = (a["marks"], rubric.indicator(a["marks"]))
+    return render_template("my_audits.html", as_auditee=as_auditee, as_auditor=as_auditor, results=results)
 
 
 @bp.route("/audits/<int:aid>/schedule", methods=["POST"])
@@ -479,6 +487,29 @@ def _rubric_ctx(audit, sem, scores, facility, editable, values):
     return dict(audit=audit, sem=sem, ee=ee, er=er, scores=scores, facility=facility, editable=editable,
                 v=values, r=result, indicator=rubric.indicator(result["tas"]) if result["complete"] else "",
                 rubric=rubric)
+
+
+# ----------------------------------------------------- results: AJK and release
+@bp.route("/semesters/<int:sid>/ajk", methods=["POST"])
+@login_required("admin")
+def submit_ajk(sid):
+    try:
+        services.submit_to_ajk(get_semester(sid))
+        flash("Recorded as submitted to AJK Induk. You can release the marks when ready.", "ok")
+    except ValueError as exc:
+        flash(str(exc), "error")
+    return back(sid)
+
+
+@bp.route("/semesters/<int:sid>/release", methods=["POST"])
+@login_required("admin")
+def release(sid):
+    try:
+        services.release_marks(get_semester(sid), allow_incomplete=bool(request.form.get("allow_incomplete")))
+        flash("Marks released. Lecturers have been notified.", "ok")
+    except ValueError as exc:
+        flash(str(exc), "error")
+    return back(sid)
 
 
 # ------------------------------------------------------- re-audits (low marks)

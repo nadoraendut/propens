@@ -429,6 +429,59 @@ def _handle_cemerlang(audit, semester, tas):
              f"(Cemerlang, {rubric.CEMERLANG_MIN}-100), audited by {er['name']}.", f"/semesters/{semester['id']}")
 
 
+def final_audit_ids(semester_id):
+    return {a["id"] for a in final_audits(audit_rows(semester_id))}
+
+
+def release_summary(semester):
+    """How many lecturers' final audits are done, for the release screen."""
+    finals = final_audits(audit_rows(semester["id"]))
+    return {"total": len(finals), "done": sum(1 for a in finals if a["completed_at"])}
+
+
+def submit_to_ajk(semester):
+    """Admin records that the results were passed to AJK Induk. Required before release."""
+    if semester["state"] not in ("approved", "closed"):
+        raise ValueError("The audit list must be approved first.")
+    if semester["submitted_ajk_at"]:
+        raise ValueError("Already recorded as submitted to AJK Induk.")
+    db = get_db()
+    db.execute("UPDATE semesters SET submitted_ajk_at=? WHERE id=?", (now(), semester["id"]))
+    db.commit()
+
+
+def release_marks(semester, allow_incomplete=False):
+    """Admin releases results. Lecturers can then see their final mark; Cemerlang lecturers get an in-app alert.
+
+    Lecturers whose final audit is not finished (e.g. re-audit pending) are not shown anything.
+    """
+    if not semester["submitted_ajk_at"]:
+        raise ValueError("Record the submission to AJK Induk first.")
+    if semester["released_at"]:
+        raise ValueError("Marks are already released.")
+    summary = release_summary(semester)
+    if summary["done"] < summary["total"] and not allow_incomplete:
+        raise ValueError(f"{summary['total'] - summary['done']} audit(s) are not finished. Tick the box to release "
+                         "anyway; those lecturers will see no result.")
+    db = get_db()
+    db.execute("UPDATE semesters SET released_at=? WHERE id=?", (now(), semester["id"]))
+    for a in final_audits(audit_rows(semester["id"])):
+        if not a["completed_at"] or a["marks"] is None:
+            continue
+        ee = db.execute("SELECT * FROM lecturers WHERE id=?", (a["auditee_id"],)).fetchone()
+        subject = f"Your PRO-PENS result for {semester['name']} is available"
+        body = f"Dear {ee['name']},\n\nYour PRO-PENS result for {semester['name']} has been released. Log in to My audits to view it."
+        if a["marks"] >= rubric.CEMERLANG_MIN:
+            notify(ee["id"], f"Congratulations! Your PRO-PENS result for {semester['name']} is Cemerlang "
+                             f"({rubric.CEMERLANG_MIN} and above).", "/my-audits")
+            send_email(ee["email"], subject, body)     # in-app message above is the special one
+        else:
+            tell(ee, subject, body, "/my-audits")
+    for head in users_with_role("head"):
+        notify(head["id"], f"Marks for {semester['name']} have been released to lecturers", f"/semesters/{semester['id']}")
+    db.commit()
+
+
 def reaudit_rows(semester_id):
     return [a for a in audit_rows(semester_id) if a["round_no"] == 2]
 
