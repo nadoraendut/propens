@@ -45,7 +45,7 @@ Flow: load list → generate → admin verifies → Head of Faculty approves →
 <td class="{{ 'good' if status[a.id] in ['ok','peer'] else 'bad' }}">{{ {'ok':'OK','peer':'Peer (same seniority)','none':'Head to pick','override':'Override'}[status[a.id]] }}
 {% if role=='head' and sem.state=='pending_head' and not a.auditor_id %}<form method="post" action="{{ url_for('main.head_assign', aid=a.id) }}"><input type="hidden" name="csrf" value="{{ csrf }}"><select name="auditor_id">{% for p in pool if p.id!=a.auditee_id %}<option value="{{ p.id }}">{{ p.name }} ({{ p.grade }}, {{ p.start_date|years }}y)</option>{% endfor %}</select> <button class="sec">Assign</button></form>{% endif %}</td>
 <td>{{ a.session_date or '—' }} {{ a.session_time or '' }}</td>
-<td>{% if role=='admin' and a.completed_at %}{{ a.marks }}{% elif a.completed_at %}Done{% else %}—{% endif %}</td>
+<td>{% if a.completed_at %}{{ a.marks }} <a href="{{ url_for('main.rubric_form', aid=a.id) }}">rubric</a>{% else %}—{% endif %}</td>
 {% if editable %}<td><form method="post" action="{{ url_for('main.audit_delete', aid=a.id) }}" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="danger">Remove</button></form></td>{% endif %}
 </tr>{% else %}<tr><td class="mut">Not generated yet.</td></tr>{% endfor %}</table></div>
 {% if editable and candidates %}

@@ -10,7 +10,7 @@ from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Alignment, Font, PatternFill
 from werkzeug.security import generate_password_hash
 
-from . import logic
+from . import logic, rubric
 from .db import get_db
 from .notify import now, notify, send_email, tell, users_with_role
 
@@ -28,9 +28,9 @@ COLUMNS = [  # (key, header, accepted header aliases)
 ]
 REQUIRED = ("staff_id", "name", "grade", "bidang", "start_date")
 
-# Mark bands used in reports (out of 100).
-BANDS = [("Excellent (80-100)", 80), ("Good (60-79)", 60),
-         ("Satisfactory (40-59)", 40), ("Needs improvement (<40)", 0)]
+# Mark bands used in reports (TAS out of 100) -- the indicator table printed on the PRO-PENS form.
+BANDS = [(f"{label} ({'<60' if floor == 0 else (str(floor) + '-' + ('100' if floor == 90 else str(floor + 9)))})", floor)
+         for floor, label in rubric.INDICATORS]
 
 
 # ---------------------------------------------------------------- importing
@@ -278,15 +278,79 @@ def schedule_session(audit, session_date, session_time, venue):
     db.commit()
 
 
-def submit_result(audit, marks, feedback):
-    """Auditor finalises marks + feedback. Only the feedback goes to the auditee."""
+HEADER_FIELDS = ("faculty", "program", "course_code", "group_no", "method")
+COMMENT_FIELDS = ("comment_teaching", "comment_prof", "comment_other")
+
+
+def get_scores(audit_id):
     db = get_db()
-    db.execute("UPDATE audits SET marks=?, feedback=?, completed_at=? WHERE id=?",
-               (marks, feedback, now(), audit["id"]))
-    ee = db.execute("SELECT * FROM lecturers WHERE id=?", (audit["auditee_id"],)).fetchone()
-    tell(ee, "Feedback from your teaching audit",
-         f"Dear {ee['name']},\n\nFeedback from your auditor:\n\n{feedback}", "/my-audits")
+    return ({r["item"]: r["score"] for r in db.execute("SELECT item,score FROM audit_scores WHERE audit_id=?", (audit_id,))},
+            {r["item"]: r["score"] for r in db.execute("SELECT item,score FROM facility_scores WHERE audit_id=?", (audit_id,))})
+
+
+def save_rubric(audit, form, submit):
+    """Store the auditor's PRO-PENS rubric. With submit=True it is validated and finalised.
+
+    Returns a list of problems (empty on success). Nothing is written if submit fails.
+    """
+    scores, facility = {}, {}
+    for n in rubric.ITEM_NUMBERS:
+        v = form.get(f"item_{n}", "")
+        if v in ("1", "2", "3", "4", "5"):
+            scores[n] = int(v)
+    for n in range(1, len(rubric.FACILITY_ITEMS) + 1):
+        v = form.get(f"fac_{n}", "")
+        if v in ("0", "1", "2", "3", "4", "5"):
+            facility[n] = int(v)
+    header = {k: form.get(k, "").strip() for k in HEADER_FIELDS}
+    comments = {k: form.get(k, "").strip() for k in COMMENT_FIELDS}
+    raw_students = form.get("student_count", "").strip()
+    problems = []
+    students = None
+    if raw_students:
+        if raw_students.isdigit():
+            students = int(raw_students)
+        else:
+            problems.append("Number of students must be a whole number.")
+    if submit:
+        missing = [n for n in rubric.ITEM_NUMBERS if n not in scores]
+        if missing:
+            problems.append("Score every item (missing: " + ", ".join(map(str, missing)) + ").")
+        if not comments["comment_teaching"] or not comments["comment_prof"]:
+            problems.append("Overall comments on Teaching & Learning and on Lecturer Professionalism are mandatory.")
+    if problems:
+        return problems
+
+    db = get_db()
+    result = rubric.compute(scores)
+    db.execute("DELETE FROM audit_scores WHERE audit_id=?", (audit["id"],))
+    db.executemany("INSERT INTO audit_scores VALUES (?,?,?)", [(audit["id"], n, v) for n, v in scores.items()])
+    db.execute("DELETE FROM facility_scores WHERE audit_id=?", (audit["id"],))
+    db.executemany("INSERT INTO facility_scores VALUES (?,?,?)", [(audit["id"], n, v) for n, v in facility.items()])
+    sdate = logic.parse_date(form.get("session_date")) if form.get("session_date") else None
+    db.execute(
+        """UPDATE audits SET faculty=?, program=?, course_code=?, group_no=?, method=?, student_count=?,
+           comment_teaching=?, comment_prof=?, comment_other=?, facility_room=?, facility_suggestion=?,
+           session_date=COALESCE(?, session_date), session_time=COALESCE(NULLIF(?, ''), session_time),
+           raw_score=?, marks=? WHERE id=?""",
+        (header["faculty"], header["program"], header["course_code"], header["group_no"], header["method"],
+         students, comments["comment_teaching"], comments["comment_prof"], comments["comment_other"],
+         form.get("facility_room", "").strip(), form.get("facility_suggestion", "").strip(),
+         sdate.isoformat() if sdate else None, form.get("session_time", ""),
+         result["raw"] if scores else None, result["tas"] if result["complete"] else None, audit["id"]))
+    if submit:
+        feedback = "\n\n".join(f"{title}:\n{comments[k]}" for k, title in
+                                [("comment_teaching", "Pengajaran dan Pembelajaran"),
+                                 ("comment_prof", "Profesionalisme Pensyarah"),
+                                 ("comment_other", "Lain-lain Perkara")] if comments[k])
+        db.execute("UPDATE audits SET feedback=?, completed_at=? WHERE id=?", (feedback, now(), audit["id"]))
+        ee = db.execute("SELECT * FROM lecturers WHERE id=?", (audit["auditee_id"],)).fetchone()
+        tell(ee, "Feedback from your teaching audit",
+             f"Dear {ee['name']},\n\nFeedback from your auditor:\n\n{feedback}\n\n"
+             "Note: marks are not disclosed by the auditor. They are announced officially by the "
+             "Ketua Pusat Pengajian after approval by the committee.", "/my-audits")
     db.commit()
+    return []
 
 
 def send_reminders(today=None):
@@ -334,6 +398,15 @@ def report(semester):
     bands = {label: 0 for label, _ in BANDS}
     for m in scored:
         bands[_band(m)] += 1
+    sec_totals = defaultdict(list)
+    for a in done:
+        sc, _ = get_scores(a["id"])
+        for k, v in rubric.compute(sc)["sections"].items():
+            sec_totals[k].append(v)
+    sections = [{"key": sec["key"], "title": sec["title"].split(":", 1)[1].strip(), "max": sec["max"],
+                 "average": _avg(sec_totals.get(sec["key"], [])),
+                 "percent": round(100 * _avg(sec_totals[sec["key"]]) / sec["max"], 1)
+                 if sec_totals.get(sec["key"]) else None} for sec in rubric.SECTIONS]
     quota = department_quota(semester)
     for q in quota:
         q["completed"] = sum(1 for a in done if a["ee_bidang"] == q["dept"])
@@ -349,7 +422,7 @@ def report(semester):
         "lowest": min(scored) if scored else None,
         "quota": quota,
         "campus": [{"campus": c, "count": len(v), "average": _avg(v)} for c, v in sorted(by_campus.items())],
-        "bands": bands,
+        "bands": bands, "sections": sections,
         "workload": [{"staff_id": k[0], "name": k[1], "assigned": v[0], "completed": v[1]}
                      for k, v in sorted(load.items(), key=lambda kv: -kv[1][0])],
         "rule_violations": sum(1 for v in rule_statuses(semester["id"]).values() if v == "override"),
@@ -364,14 +437,31 @@ def export_workbook(semester):
     wb = Workbook()
     ws = wb.active
     ws.title = "Audit Marks"
-    head = ["Semester", "Staff ID", "Staff Name", "Gred Jawatan", "Bidang", "Campus",
-            "Auditor Staff ID", "Auditor Name", "Session Date", "Session Time", "Venue", "Marks", "Status"]
-    ws.append(head)
+    keys = [sec["key"] for sec in rubric.SECTIONS]
+    ws.append(["Semester", "Staff ID", "Staff Name", "Gred Jawatan", "Bidang", "Campus",
+               "Auditor Staff ID", "Auditor Name", "Session Date", "Session Time", "Venue",
+               "Course Code", "Programme", "Group", "No. Students"]
+              + [f"{k} (/{sec['max']})" for k, sec in zip(keys, rubric.SECTIONS)]
+              + ["Raw Total (/145)", "Total Score TS (/50)", "Marks TAS (/100)", "Indicator", "Status"])
     for a in audits:
+        sc, _ = get_scores(a["id"])
+        r = rubric.compute(sc)
+        done = bool(a["completed_at"])
         ws.append([semester["name"], a["ee_staff"], a["ee_name"], a["ee_grade"], a["ee_bidang"],
                    a["ee_campus"], a["er_staff"], a["er_name"], a["session_date"], a["session_time"],
-                   a["venue"], a["marks"], "Completed" if a["completed_at"] else
-                   ("Scheduled" if a["session_date"] else "Not scheduled")])
+                   a["venue"], a["course_code"], a["program"], a["group_no"], a["student_count"]]
+                  + [r["sections"][k] if done else None for k in keys]
+                  + [r["raw"] if done else None, r["ts"] if done else None, a["marks"] if done else None,
+                     rubric.indicator(a["marks"]) if done else "",
+                     "Completed" if done else ("Scheduled" if a["session_date"] else "Not scheduled")])
+    f = wb.create_sheet("Facilities")
+    f.append(["Staff ID", "Staff Name", "Room"] + [f"{n}" for n in range(1, len(rubric.FACILITY_ITEMS) + 1)]
+             + ["Suggestions"])
+    for a in audits:
+        if a["completed_at"]:
+            _, fs = get_scores(a["id"])
+            f.append([a["ee_staff"], a["ee_name"], a["facility_room"]]
+                     + [fs.get(n) for n in range(1, len(rubric.FACILITY_ITEMS) + 1)] + [a["facility_suggestion"]])
     s = wb.create_sheet("Summary by Department")
     s.append(["Bidang", "Eligible lecturers", f"Required (min {semester['min_percent']:g}%)",
               "Selected", "Completed", "Average marks"])
@@ -385,6 +475,10 @@ def export_workbook(semester):
     w.append(["Staff ID", "Auditor", "Assigned", "Completed"])
     for r in rep["workload"]:
         w.append([r["staff_id"], r["name"], r["assigned"], r["completed"]])
+    sa = wb.create_sheet("Section Averages")
+    sa.append(["Section", "Max", "Average", "Average %"])
+    for r in rep["sections"]:
+        sa.append([f"{r['key']}: {r['title']}", r["max"], r["average"], r["percent"]])
     b = wb.create_sheet("Mark Bands")
     b.append(["Band", "Lecturers"])
     for k, v in rep["bands"].items():

@@ -6,7 +6,7 @@ from datetime import date, timedelta
 import pytest
 from openpyxl import load_workbook
 
-from propens import create_app, services
+from propens import create_app, rubric, services
 from propens.db import get_db
 
 
@@ -114,29 +114,51 @@ def test_full_workflow(app):
         assert services.send_reminders() == 1
         assert services.send_reminders() == 0
 
-    # a non-auditor cannot score
-    assert ee.post(f"/audits/{a['id']}/score", data={"csrf": "t", "marks": "50"}).status_code == 403
+    # only the auditor may open/submit the rubric; the auditee may not even view it
+    assert ee.get(f"/audits/{a['id']}/rubric").status_code == 403
+    assert ee.post(f"/audits/{a['id']}/rubric", data={"csrf": "t", "action": "submit"}).status_code == 403
 
-    # auditor scores; feedback (not marks) reaches auditee
+    # auditor: incomplete submission rejected, nothing stored as completed
     er = client_for(app, a["er_staff"], a["er_staff"])
-    r = post(er, f"/audits/{a['id']}/score", action="submit", marks="150", feedback="x")
-    assert b"0 to 100" in r.data
-    post(er, f"/audits/{a['id']}/score", action="submit", marks="82.5", feedback="Clear delivery.")
+    r = post(er, f"/audits/{a['id']}/rubric", action="submit", item_1="5", comment_teaching="x")
+    assert b"Score every item" in r.data and b"mandatory" in r.data
+    # draft keeps partial scores
+    post(er, f"/audits/{a['id']}/rubric", action="save", item_1="5", item_2="3", faculty="FSKM")
+    page = er.get(f"/audits/{a['id']}/rubric").data.decode()
+    assert 'value="FSKM"' in page
     with app.app_context():
+        assert get_db().execute("SELECT completed_at, marks FROM audits WHERE id=?", (a["id"],)).fetchone()[:] == (None, None)
+
+    # full submission: all 4s => raw 116 => TAS 80.0
+    full = {f"item_{n}": "4" for n in rubric.ITEM_NUMBERS}
+    full.update({"fac_1": "5", "fac_3": "0", "facility_room": "BK1", "facility_suggestion": "More plugs"})
+    post(er, f"/audits/{a['id']}/rubric", action="submit", comment_teaching="Clear delivery.",
+         comment_prof="Punctual.", course_code="CSC101", student_count="40", **full)
+    with app.app_context():
+        row = get_db().execute("SELECT * FROM audits WHERE id=?", (a["id"],)).fetchone()
+        assert row["marks"] == 80.0 and row["raw_score"] == 116 and row["completed_at"]
         fb = get_db().execute("SELECT * FROM emails WHERE to_addr=? AND subject LIKE 'Feedback%'",
                               (a["ee_email"],)).fetchone()
-        assert "Clear delivery." in fb["body"] and "82.5" not in fb["body"]
+        assert "Clear delivery." in fb["body"] and "Punctual." in fb["body"]
+        assert "80" not in fb["body"].replace("Ketua", "") and "More plugs" not in fb["body"]
+    # locked after submit
+    assert er.post(f"/audits/{a['id']}/rubric", data={"csrf": "t", "action": "save"}).status_code == 403
     page = ee.get("/my-audits").data.decode()
-    assert "Clear delivery." in page and "82.5" not in page
+    assert "Clear delivery." in page and "80.0" not in page and "rubric" not in page.lower().replace("pro-pens rubric", "")
+    assert admin.get(f"/audits/{a['id']}/rubric").status_code == 200
+    assert b"80.0" in admin.get(f"/audits/{a['id']}/rubric").data
 
-    # Excel export has marks, no feedback column
+    # Excel export: marks + section totals, no free-text comments
     r = admin.get("/semesters/1/export.xlsx")
     wb = load_workbook(io.BytesIO(r.data))
     ws = wb["Audit Marks"]
-    assert [c.value for c in ws[1]][11] == "Marks"
-    assert 82.5 in [row[11].value for row in ws.iter_rows(min_row=2)]
-    assert "Clear delivery." not in str([[c.value for c in row] for row in ws.iter_rows()])
-    assert {"Summary by Department", "Auditor Workload"} <= set(wb.sheetnames)
+    hdr = [c.value for c in ws[1]]
+    row = [c.value for c in next(x for x in ws.iter_rows(min_row=2) if x[hdr.index("Marks TAS (/100)")].value is not None)]
+    assert row[hdr.index("Marks TAS (/100)")] == 80.0 and row[hdr.index("Raw Total (/145)")] == 116
+    assert row[hdr.index("Indicator")].startswith("Baik") and row[hdr.index("A (/25)")] == 20
+    assert "Clear delivery." not in str([[c.value for c in r_] for r_ in ws.iter_rows()])
+    assert {"Summary by Department", "Auditor Workload", "Facilities", "Section Averages"} <= set(wb.sheetnames)
+    assert wb["Facilities"]["D2"].value == 5
 
     assert admin.get("/semesters/1/report").status_code == 200
     assert ee.get("/semesters/1/report").status_code == 403

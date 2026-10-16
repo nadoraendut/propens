@@ -17,6 +17,8 @@
 <td><div class="bar"><i style="width:{{ (100*q.completed/q.selected) if q.selected else 0 }}%"></i></div></td><td>{{ q.average if q.average is not none else '—' }}</td></tr>{% endfor %}</table></div></div>
 <div class="card"><h2>By campus</h2><table><tr><th>Campus</th><th>Completed</th><th>Avg marks</th></tr>
 {% for c in r.campus %}<tr><td>{{ c.campus }}</td><td>{{ c.count }}</td><td>{{ c.average }}</td></tr>{% else %}<tr><td class="mut">No completed audits yet.</td></tr>{% endfor %}</table></div>
+<div class="card"><h2>Average by rubric section</h2><table><tr><th>Section</th><th>Average</th><th>Max</th><th>%</th></tr>
+{% for x in r.sections %}<tr><td>{{ x.key }}: {{ x.title }}</td><td>{{ x.average if x.average is not none else '—' }}</td><td>{{ x.max }}</td><td>{{ x.percent if x.percent is not none else '—' }}</td></tr>{% endfor %}</table></div>
 <div class="card"><h2>Mark distribution</h2><table>{% for k,v in r.bands.items() %}<tr><td>{{ k }}</td><td>{{ v }}</td></tr>{% endfor %}</table></div>
 <div class="card"><h2>Auditor workload</h2><table><tr><th>Auditor</th><th>Assigned</th><th>Completed</th></tr>
 {% for w in r.workload %}<tr><td>{{ w.name }} <span class="mut">{{ w.staff_id }}</span></td><td>{{ w.assigned }}</td><td>{{ w.completed }}</td></tr>{% else %}<tr><td class="mut">No audits yet.</td></tr>{% endfor %}</table></div>

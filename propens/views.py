@@ -6,7 +6,7 @@ from flask import (Blueprint, abort, flash, g, redirect, render_template, reques
                    send_file, session, url_for)
 from werkzeug.security import check_password_hash, generate_password_hash
 
-from . import logic, services
+from . import logic, rubric, services
 from .db import get_db
 
 bp = Blueprint("main", __name__)
@@ -416,36 +416,44 @@ def schedule(aid):
     return redirect(url_for("main.my_audits"))
 
 
-@bp.route("/audits/<int:aid>/score", methods=["POST"])
+@bp.route("/audits/<int:aid>/rubric", methods=["GET", "POST"])
 @login_required()
-def score(aid):
+def rubric_form(aid):
+    """PRO-PENS rubric. Auditor fills it; admin and Head may read it. The auditee never sees it."""
     audit = get_audit(aid)
-    if g.user["id"] != audit["auditor_id"]:
+    sem = get_semester(audit["semester_id"])
+    is_auditor = g.user["id"] == audit["auditor_id"]
+    if not (is_auditor or g.user["role"] in ("admin", "head")):
         abort(403)
-    if get_semester(audit["semester_id"])["state"] != "approved" or audit["completed_at"]:
-        flash("This audit can no longer be edited.", "error")
-        return redirect(url_for("main.my_audits"))
-    feedback = request.form.get("feedback", "").strip()
-    raw = request.form.get("marks", "").strip()
-    try:
-        marks = float(raw) if raw else None
-        if marks is not None and not 0 <= marks <= 100:
-            raise ValueError
-    except ValueError:
-        flash("Marks must be a number from 0 to 100.", "error")
-        return redirect(url_for("main.my_audits"))
+    editable = is_auditor and sem["state"] == "approved" and not audit["completed_at"]
+    if request.method == "POST":
+        if not editable:
+            abort(403)
+        problems = services.save_rubric(audit, request.form, submit=request.form.get("action") == "submit")
+        if problems:
+            for p in problems:
+                flash(p, "error")
+            scores = {n: int(request.form[f"item_{n}"]) for n in rubric.ITEM_NUMBERS
+                      if request.form.get(f"item_{n}") in ("1", "2", "3", "4", "5")}
+            facility = {n: int(request.form[f"fac_{n}"]) for n in range(1, len(rubric.FACILITY_ITEMS) + 1)
+                        if request.form.get(f"fac_{n}") in ("0", "1", "2", "3", "4", "5")}
+            return render_template("rubric.html", **_rubric_ctx(audit, sem, scores, facility, True, request.form))
+        flash("Submitted. The auditee received your comments (not the marks)."
+              if request.form.get("action") == "submit" else "Draft saved.", "ok")
+        return redirect(url_for("main.my_audits") if request.form.get("action") == "submit"
+                        else url_for("main.rubric_form", aid=aid))
+    scores, facility = services.get_scores(aid)
+    return render_template("rubric.html", **_rubric_ctx(audit, sem, scores, facility, editable, audit))
+
+
+def _rubric_ctx(audit, sem, scores, facility, editable, values):
     db = get_db()
-    if request.form.get("action") == "submit":
-        if marks is None or not feedback:
-            flash("Enter both marks and feedback to submit.", "error")
-            return redirect(url_for("main.my_audits"))
-        services.submit_result(audit, marks, feedback)
-        flash("Submitted. The auditee received your feedback (not the marks).", "ok")
-    else:
-        db.execute("UPDATE audits SET marks=?, feedback=? WHERE id=?", (marks, feedback, aid))
-        db.commit()
-        flash("Draft saved.", "ok")
-    return redirect(url_for("main.my_audits"))
+    ee = db.execute("SELECT * FROM lecturers WHERE id=?", (audit["auditee_id"],)).fetchone()
+    er = db.execute("SELECT * FROM lecturers WHERE id=?", (audit["auditor_id"],)).fetchone()
+    result = rubric.compute(scores)
+    return dict(audit=audit, sem=sem, ee=ee, er=er, scores=scores, facility=facility, editable=editable,
+                v=values, r=result, indicator=rubric.indicator(result["tas"]) if result["complete"] else "",
+                rubric=rubric)
 
 
 # ---------------------------------------------------- reports and exports

@@ -16,10 +16,7 @@
 {% for a in as_auditor %}<div style="border-top:1px solid var(--line);padding:10px 0">
 <b>{{ a.sem }}</b> — auditee: {{ a.ee_name }} ({{ a.ee_staff }}, {{ a.ee_bidang }}) ·
 {% if a.session_date %}session {{ a.session_date }} {{ a.session_time }} {{ a.venue }}{% else %}<span class="mut">session not set yet</span>{% endif %}
-{% if a.completed_at %}<p class="good">Submitted. Marks: {{ a.marks }}</p>
+{% if a.completed_at %}<p class="good">Submitted. <a href="{{ url_for('main.rubric_form', aid=a.id) }}">View rubric</a></p>
 {% elif a.state=='approved' %}
-<form method="post" action="{{ url_for('main.score', aid=a.id) }}"><input type="hidden" name="csrf" value="{{ csrf }}">
-<label>Marks (0-100) — not shared with the auditee</label><input type="number" name="marks" min="0" max="100" step="0.1" value="{{ a.marks if a.marks is not none }}">
-<label>Feedback — this is sent to the auditee</label><textarea name="feedback" rows="4" style="width:100%">{{ a.feedback }}</textarea>
-<p><button name="action" value="save" class="sec">Save draft</button> <button name="action" value="submit">Submit &amp; send feedback</button></p></form>{% endif %}</div>
+<p><a class="btn" href="{{ url_for('main.rubric_form', aid=a.id) }}">Open PRO-PENS rubric form</a></p>{% endif %}</div>
 {% else %}<p class="mut">None.</p>{% endfor %}</div>{% endblock %}

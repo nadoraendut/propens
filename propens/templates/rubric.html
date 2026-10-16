@@ -1,0 +1,79 @@
+{% extends "base.html" %}{% block title %}PRO-PENS Rubric{% endblock %}
+{% block body %}
+<style>
+.rb th,.rb td{font-size:12.5px;padding:5px 6px;border:1px solid var(--line)}
+.rb td.lv label{display:block;cursor:pointer;margin:0;color:var(--ink);font-size:12px}
+.rb td.lv input{float:left;margin:2px 6px 0 0}
+.rb td.lv.on{background:color-mix(in srgb,var(--pri) 16%,transparent)}
+.sec td.h{background:color-mix(in srgb,#d946ef 14%,transparent);font-weight:700}
+.tot td{font-weight:700;background:var(--bg)}
+.hdr{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:4px 16px}
+.hdr label{margin:6px 0 2px}
+.en{font-style:italic;color:var(--mut)}
+.sticky{position:sticky;bottom:0;background:var(--card);border-top:1px solid var(--line);padding:10px 16px;margin:0 -16px -16px;display:flex;gap:16px;align-items:center;flex-wrap:wrap}
+</style>
+<form method="post" id="f"><input type="hidden" name="csrf" value="{{ csrf }}">
+<div class="card">
+<div class="row"><h1 style="flex:1;margin:0">Rubrik Pemantauan Pensyarah (PRO-PENS)</h1>
+<a class="btn sec" href="{{ url_for('main.my_audits') if editable else url_for('main.semester', sid=sem.id) if role in ['admin','head'] else url_for('main.my_audits') }}">Back</a></div>
+<p class="mut">{{ sem.name }} · UiTM Cawangan Melaka</p>
+{% if editable %}<div class="flash warn"><b>Peringatan:</b> Pensyarah pemantau adalah <b>tidak dibenarkan</b> memaklumkan markah kepada pensyarah yang dinilai. Markah hanya akan dimaklumkan oleh Ketua Pusat Pengajian selepas mendapat kelulusan Mesyuarat Jawatankuasa Akademik Negeri. Only your written comments are sent to the lecturer.</div>{% endif %}
+<div class="hdr">
+<div><label>Nama pensyarah dipantau</label><input value="{{ ee.name }}" disabled style="width:100%"></div>
+<div><label>No. pekerja</label><input value="{{ ee.staff_id }}" disabled style="width:100%"></div>
+<div><label>Gred jawatan</label><input value="{{ ee.grade }}" disabled style="width:100%"></div>
+<div><label>Bil. tahun berkhidmat</label><input value="{{ ee.start_date|years }}" disabled style="width:100%"></div>
+<div><label>Fakulti</label><input name="faculty" value="{{ v['faculty'] or '' }}" {{ '' if editable else 'disabled' }} style="width:100%"></div>
+<div><label>Program</label><input name="program" value="{{ v['program'] or '' }}" {{ '' if editable else 'disabled' }} style="width:100%"></div>
+<div><label>Kod kursus</label><input name="course_code" value="{{ v['course_code'] or '' }}" {{ '' if editable else 'disabled' }} style="width:100%"></div>
+<div><label>Kumpulan</label><input name="group_no" value="{{ v['group_no'] or '' }}" {{ '' if editable else 'disabled' }} style="width:100%"></div>
+<div><label>Bil. pelajar</label><input name="student_count" inputmode="numeric" value="{{ v['student_count'] if v['student_count'] is not none else '' }}" {{ '' if editable else 'disabled' }} style="width:100%"></div>
+<div><label>Kaedah penilaian</label><input name="method" value="{{ v['method'] or '' }}" {{ '' if editable else 'disabled' }} style="width:100%"></div>
+<div><label>Tarikh</label><input type="date" name="session_date" value="{{ v['session_date'] or '' }}" {{ '' if editable else 'disabled' }} style="width:100%"></div>
+<div><label>Masa</label><input type="time" name="session_time" value="{{ v['session_time'] or '' }}" {{ '' if editable else 'disabled' }} style="width:100%"></div>
+</div></div>
+
+{% for sec in rubric.SECTIONS %}
+<div class="card scroll"><table class="rb sec" data-sec="{{ sec.key }}">
+<tr><td class="h" colspan="7">{{ sec.title }}</td></tr>
+<tr><th style="width:34px">No.</th><th style="min-width:220px">Item</th>{% for n in rubric.SCALE %}<th style="min-width:110px">{{ n }}<br>({{ loop.index }})</th>{% endfor %}</tr>
+{% for it in sec['items'] %}<tr>
+<td>{{ it.no }}</td>
+<td>{{ it.bm }}{% if it.en %}<br><span class="en">{{ it.en }}</span>{% endif %}{% if it.note %}<br><b style="font-size:11.5px">{{ it.note }}</b>{% endif %}</td>
+{% for d in it.levels %}{% set lv = loop.index %}<td class="lv {{ 'on' if scores.get(it.no)==lv }}"><label><input type="radio" name="item_{{ it.no }}" value="{{ lv }}" {{ 'checked' if scores.get(it.no)==lv }} {{ '' if editable else 'disabled' }}>{{ d }}</label></td>{% endfor %}
+</tr>{% endfor %}
+<tr class="tot"><td colspan="2" style="text-align:right">Jumlah Skor / Total Score</td><td colspan="5"><span class="sectot" data-key="{{ sec.key }}">{{ r.sections[sec.key] }}</span> / {{ sec.max }}</td></tr>
+</table></div>
+{% endfor %}
+
+<div class="card"><h2>Komen Keseluruhan (WAJIB DIISI)</h2>
+<label>Pengajaran dan Pembelajaran *</label><textarea name="comment_teaching" rows="4" style="width:100%" {{ '' if editable else 'disabled' }}>{{ v['comment_teaching'] or '' }}</textarea>
+<label>Profesionalisme Pensyarah *</label><textarea name="comment_prof" rows="4" style="width:100%" {{ '' if editable else 'disabled' }}>{{ v['comment_prof'] or '' }}</textarea>
+<label>Lain-Lain Perkara</label><textarea name="comment_other" rows="3" style="width:100%" {{ '' if editable else 'disabled' }}>{{ v['comment_other'] or '' }}</textarea>
+<label>Nama pensyarah pemantau</label><input value="{{ er.name }}" disabled style="width:320px">
+</div>
+
+<div class="card scroll"><h2>Prasarana &amp; Fasiliti Pembelajaran di bilik kuliah</h2>
+<p class="mut">Not part of the mark. Visible to the auditor, admin and Head of Faculty only; not sent to the lecturer.</p>
+<label>Bilik kuliah</label><input name="facility_room" value="{{ v['facility_room'] or '' }}" {{ '' if editable else 'disabled' }}>
+<table class="rb" style="margin-top:10px"><tr><th>Kriteria</th>{% for n in rubric.FACILITY_SCALE %}<th style="min-width:70px">{{ loop.index0 }}<br>{{ n }}</th>{% endfor %}</tr>
+{% for t in rubric.FACILITY_ITEMS %}{% set i = loop.index %}<tr><td>{{ i }}. {{ t }}</td>
+{% for n in rubric.FACILITY_SCALE %}<td style="text-align:center"><input type="radio" name="fac_{{ i }}" value="{{ loop.index0 }}" {{ 'checked' if facility.get(i)==loop.index0 }} {{ '' if editable else 'disabled' }}></td>{% endfor %}</tr>{% endfor %}</table>
+<label>Cadangan penambahbaikan dan lain-lain</label><textarea name="facility_suggestion" rows="3" style="width:100%" {{ '' if editable else 'disabled' }}>{{ v['facility_suggestion'] or '' }}</textarea></div>
+
+<div class="card"><div class="sticky">
+<div><b>TS</b> <span id="ts">{{ r.ts }}</span> / 50 &nbsp; <b>TAS</b> <span id="tas">{{ r.tas }}</span> / 100 &nbsp; <span class="badge" id="ind">{{ indicator }}</span>{% if not r.complete %} <span class="mut">(incomplete)</span>{% endif %}</div>
+{% if editable %}<span class="sp" style="flex:1"></span><button name="action" value="save" class="sec">Save draft</button>
+<button name="action" value="submit" onclick="return confirm('Submit? You cannot edit after submitting.')">Submit &amp; send comments to lecturer</button>{% endif %}
+</div>
+<p class="mut" style="margin:8px 0 0">TS = (A+B+C) × 50 / 145 · TAS = TS × 2 · &lt;60 Sangat Lemah · 60–69 Lemah · 70–79 Memuaskan · 80–89 Baik · 90–100 Cemerlang</p></div>
+</form>
+{% if editable %}<script>
+const IND=[[90,"Cemerlang / Excellent"],[80,"Baik / Good"],[70,"Memuaskan / Satisfactory"],[60,"Lemah / Poor"],[0,"Sangat Lemah / Very Poor"]];
+function recalc(){let raw=0,n=0;document.querySelectorAll('.sectot').forEach(e=>{const t=e.closest('table');let s=0;t.querySelectorAll('input[type=radio]:checked').forEach(i=>{if(i.name.startsWith('item_')){s+=+i.value;n++}});e.textContent=s;raw+=s});
+const tas=Math.round(raw*10000/145)/100;document.getElementById('ts').textContent=Math.round(raw*5000/145)/100;document.getElementById('tas').textContent=tas;
+document.getElementById('ind').textContent=n==29?IND.find(x=>tas>=x[0])[1]:'incomplete';
+document.querySelectorAll('td.lv').forEach(td=>td.classList.toggle('on',td.querySelector('input').checked))}
+document.getElementById('f').addEventListener('change',recalc);recalc();
+</script>{% endif %}
+{% endblock %}

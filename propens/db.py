@@ -47,6 +47,18 @@ CREATE TABLE IF NOT EXISTS audits (
     completed_at TEXT,
     UNIQUE (semester_id, auditee_id)
 );
+CREATE TABLE IF NOT EXISTS audit_scores (          -- PRO-PENS rubric items 1-29 (score 1-5)
+    audit_id INTEGER NOT NULL REFERENCES audits(id) ON DELETE CASCADE,
+    item INTEGER NOT NULL,
+    score INTEGER NOT NULL CHECK (score BETWEEN 1 AND 5),
+    PRIMARY KEY (audit_id, item)
+);
+CREATE TABLE IF NOT EXISTS facility_scores (       -- classroom facilities checklist (score 0-5)
+    audit_id INTEGER NOT NULL REFERENCES audits(id) ON DELETE CASCADE,
+    item INTEGER NOT NULL,
+    score INTEGER NOT NULL CHECK (score BETWEEN 0 AND 5),
+    PRIMARY KEY (audit_id, item)
+);
 CREATE TABLE IF NOT EXISTS notifications (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     lecturer_id INTEGER NOT NULL REFERENCES lecturers(id),
@@ -81,5 +93,22 @@ def close_db(_exc=None):
         db.close()
 
 
+# Columns added after the first release; applied to existing databases on start-up.
+NEW_AUDIT_COLUMNS = {
+    "faculty": "TEXT NOT NULL DEFAULT ''", "program": "TEXT NOT NULL DEFAULT ''",
+    "course_code": "TEXT NOT NULL DEFAULT ''", "group_no": "TEXT NOT NULL DEFAULT ''",
+    "student_count": "INTEGER", "method": "TEXT NOT NULL DEFAULT ''",
+    "comment_teaching": "TEXT NOT NULL DEFAULT ''", "comment_prof": "TEXT NOT NULL DEFAULT ''",
+    "comment_other": "TEXT NOT NULL DEFAULT ''", "raw_score": "REAL",
+    "facility_room": "TEXT NOT NULL DEFAULT ''", "facility_suggestion": "TEXT NOT NULL DEFAULT ''",
+}
+
+
 def init_db():
-    get_db().executescript(SCHEMA)
+    db = get_db()
+    db.executescript(SCHEMA)
+    have = {r["name"] for r in db.execute("PRAGMA table_info(audits)")}
+    for col, ddl in NEW_AUDIT_COLUMNS.items():
+        if col not in have:
+            db.execute(f"ALTER TABLE audits ADD COLUMN {col} {ddl}")
+    db.commit()

@@ -28,7 +28,7 @@ Tests: `pytest`
 4. Head **approves** or **requests changes** (admin is alerted, list unlocks for editing). 
 5. On approval, auditees and auditors are e-mailed.
 6. Auditee enters date/time/venue → auditor is notified; both get reminders.
-7. Auditor enters marks + feedback. Only the feedback goes to the auditee; marks stay with auditor/admin/head.
+7. Auditor completes the **PRO-PENS rubric** (29 items scored 1-5, bilingual, as on the official form), the mandatory overall comments and the classroom-facilities checklist. Only the comments go to the auditee; marks stay with auditor/admin/head (the form's own rule: only the Ketua Pusat Pengajian announces marks).
 8. Admin downloads the Excel (marks + department/campus/workload/band summaries); report page shows the same.
 
 ## Rules implemented
@@ -38,4 +38,8 @@ Tests: `pytest`
   (current year − start year). Workload is spread evenly. If nobody qualifies (e.g. the most senior
   person) the row is left without an auditor and the admin must assign one; Verify is blocked until then.
 * Manual auditor overrides that break the rule are allowed but flagged ("Override") and counted in the report.
+* **Marks:** raw = sum of 29 items (max 145); TS = raw x 50/145 (/50); TAS = TS x 2 (/100). TAS is the audit mark.
+  Bands (from the form): <60 Sangat Lemah, 60-69 Lemah, 70-79 Memuaskan, 80-89 Baik, 90-100 Cemerlang.
+* **Same-seniority fallback:** if nobody outranks an auditee (e.g. the most senior lecturer), a lecturer with the same
+  years of service is used; if there is none, the Head picks the auditor before approving.
 * Grade comparison uses the number in the grade (DS45 < DS52). Adjust `logic.grade_rank` if your grade scheme differs.
