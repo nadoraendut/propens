@@ -351,6 +351,7 @@ def save_rubric(audit, form, submit):
              "Ketua Pusat Pengajian after approval by the committee.", "/my-audits")
         sem = db.execute("SELECT * FROM semesters WHERE id=?", (audit["semester_id"],)).fetchone()
         _handle_low_mark(audit, sem, result["tas"])
+        _handle_cemerlang(audit, sem, result["tas"])
     db.commit()
     return []
 
@@ -412,6 +413,20 @@ def _handle_low_mark(audit, semester, tas):
         tell(p, f"Low audit result: {ee['name']}",
              head_line + "\nA second audit is required. The admin will submit a proposed second auditor "
              "for your approval.", link)
+
+
+def _handle_cemerlang(audit, semester, tas):
+    """Final mark in the Cemerlang band: alert admin and Head (the lecturer is not told the mark)."""
+    if tas < rubric.CEMERLANG_MIN:
+        return
+    db = get_db()
+    ee = db.execute("SELECT * FROM lecturers WHERE id=?", (audit["auditee_id"],)).fetchone()
+    er = db.execute("SELECT * FROM lecturers WHERE id=?", (audit["auditor_id"],)).fetchone()
+    admins, heads = _admins_and_heads()
+    for p in admins + heads:
+        tell(p, f"Cemerlang result: {ee['name']} ({tas:g}/100)",
+             f"{ee['name']} ({ee['staff_id']}, {ee['bidang']}) scored {tas:g}/100 in {semester['name']} "
+             f"(Cemerlang, {rubric.CEMERLANG_MIN}-100), audited by {er['name']}.", f"/semesters/{semester['id']}")
 
 
 def reaudit_rows(semester_id):

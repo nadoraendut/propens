@@ -169,7 +169,13 @@ def test_90_and_above_is_cemerlang(app, approved):
     admin, head, first = approved
     score_all(client_for(app, first["er_staff"], first["er_staff"]), first["id"], 5)          # TAS 100
     with app.app_context():
-        sem = get_db().execute("SELECT * FROM semesters").fetchone()
+        db = get_db()
+        for uid in (1, 2):   # admin and Head are alerted; the auditee is not
+            assert db.execute("SELECT COUNT(*) FROM notifications WHERE lecturer_id=? AND message LIKE 'Cemerlang result%'",
+                              (uid,)).fetchone()[0] == 1
+        assert db.execute("SELECT COUNT(*) FROM notifications WHERE message LIKE 'Cemerlang%' AND lecturer_id NOT IN (1,2)").fetchone()[0] == 0
+        assert db.execute("SELECT COUNT(*) FROM emails WHERE subject LIKE 'Cemerlang result%'").fetchone()[0] == 2
+        sem = db.execute("SELECT * FROM semesters").fetchone()
         rep = services.report(sem)
         assert [c["staff_id"] for c in rep["cemerlang"]] == [first["ee_staff"]]
         assert rubric.indicator(90) .startswith("Cemerlang") and rubric.indicator(89.99).startswith("Baik")
