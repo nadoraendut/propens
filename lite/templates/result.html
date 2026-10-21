@@ -1,0 +1,39 @@
+{% extends "base.html" %}{% block body %}
+{% for w in r.warnings %}<div class="note">{{ w }}</div>{% endfor %}
+{% for s in r.shortfalls %}<div class="flash">{{ s.dept }}: needed {{ s.needed }} but only {{ s.got }} could be selected (too many excluded).</div>{% endfor %}
+{% if r.unmatched %}<div class="note"><b>{{ r.unmatched }}</b> auditee(s) have no lecturer who outranks or equals them: the Head of Faculty picks the auditor (shown as "HEAD TO PICK").</div>{% endif %}
+
+<div class="card"><div class="row"><h1 style="flex:1;margin:0">{{ r.semester }}: audit list</h1>
+<form method="post" action="/download" class="inline"><input type="hidden" name="result" value="{{ result_json }}"><button>Download Excel</button></form>
+<form method="post" action="/generate" class="inline"><input type="hidden" name="payload" value="{{ payload }}">
+<input type="hidden" name="semester" value="{{ r.semester }}"><input type="hidden" name="percent" value="{{ r.percent }}">
+<input type="hidden" name="exclude" value="{{ form.get('exclude','') }}"><input type="hidden" name="force" value="{{ form.get('force','') }}">
+<button class="sec">Draw again</button></form></div>
+<p class="mut">Seed <b>{{ r.seed }}</b> (same files + settings + seed gives the same list). <b>Keep the downloaded Excel:</b> upload it as the history next semester.</p></div>
+
+<div class="stats">
+<div class="card stat"><b>{{ r.rows|length }}</b>auditees selected</div>
+<div class="card stat"><b>{{ r.fairness.pool }}</b>active lecturers</div>
+<div class="card stat"><b class="{{ 'bad' if r.fairness.repeats }}">{{ r.fairness.repeats|length }}</b>picked again right after last semester</div>
+<div class="card stat"><b>{{ r.fairness.avg_wait_selected if r.fairness.avg_wait_selected is not none else '-' }}</b>avg semesters waited (selected)</div>
+<div class="card stat"><b>{{ r.fairness.avg_wait_pool if r.fairness.avg_wait_pool is not none else '-' }}</b>avg semesters waited (everyone)</div>
+{% if r.fairness.never_audited_remaining is not none %}<div class="card stat"><b>{{ r.fairness.never_audited_remaining }}</b>still never audited</div>{% endif %}
+</div>
+{% if r.fairness.repeats %}<div class="note">Selected again straight after {{ r.fairness.previous }}, because their Bidang is too small to avoid it: {% for x in r.fairness.repeats %}{{ x.name }} ({{ x.bidang }}){{ ', ' if not loop.last }}{% endfor %}.</div>{% endif %}
+
+<div class="card"><h2>Auditees and auditors</h2><div class="scroll"><table>
+<tr><th>Auditee</th><th>Gred</th><th>Years</th><th>Bidang</th><th>Why selected</th><th>Auditor</th><th>Rule</th></tr>
+{% for x in r.rows %}<tr><td>{{ x.name }}<br><span class="mut">{{ x.staff_id }}</span></td><td>{{ x.grade }}</td><td>{{ x.years }}</td><td>{{ x.bidang }}</td>
+<td>{{ x.reason }}{% if x.forced %} <span class="badge">must include</span>{% endif %}</td>
+<td>{% if x.auditor_name %}{{ x.auditor_name }}<br><span class="mut">{{ x.auditor_grade }}, {{ x.auditor_years }}y</span>{% else %}<b class="bad">Head to pick</b>{% endif %}</td>
+<td class="{{ 'good' if x.rule=='ok' else 'warn' }}">{{ {'ok':'OK','peer':'Same seniority','none':'-'}[x.rule] }}</td></tr>{% endfor %}</table></div></div>
+
+<div class="card"><h2>Bidang quota</h2><div class="scroll"><table>
+<tr><th>Bidang</th><th>Active</th><th>Required (min {{ '%g'|format(r.percent) }}%)</th><th>Selected</th><th>Everyone has had a turn after</th></tr>
+{% for d in r.departments %}<tr><td>{{ d.dept }}</td><td>{{ d.total }}</td><td>{{ d.required }}</td><td class="{{ 'good' if d.ok else 'bad' }}">{{ d.selected }}</td><td>{{ d.cycle }} semester(s)</td></tr>{% endfor %}</table></div></div>
+
+<div class="card"><h2>Auditor workload</h2><div class="scroll"><table>
+<tr><th>Auditor</th><th>Gred</th><th>This semester</th><th>In history</th><th>Also being audited</th></tr>
+{% for w in r.workload %}<tr><td>{{ w.name }} <span class="mut">{{ w.staff_id }}</span></td><td>{{ w.grade }}</td><td>{{ w.assigned }}</td><td>{{ w.past_total }}</td><td>{{ 'Yes' if w.also_audited else 'No' }}</td></tr>{% endfor %}</table></div></div>
+<p><a href="/">Start over</a></p>
+{% endblock %}

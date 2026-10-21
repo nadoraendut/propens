@@ -10,7 +10,7 @@ from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Alignment, Font, PatternFill
 from werkzeug.security import generate_password_hash
 
-from . import logic, rubric
+from . import logic, rotation, rubric
 from .db import get_db
 from .notify import now, notify, send_email, tell, users_with_role
 
@@ -41,7 +41,11 @@ def _norm(h):
 def read_rows(filename, data):
     """Return list of header-keyed dict rows from an .xlsx or .csv upload."""
     if filename.lower().endswith((".xlsx", ".xlsm")):
-        ws = load_workbook(io.BytesIO(data), data_only=True).active
+        try:
+            ws = load_workbook(io.BytesIO(data), data_only=True).active
+        except Exception:
+            raise ValueError("Could not read the file as an Excel (.xlsx) workbook. Is it damaged, or a CSV "
+                             "saved with an .xlsx name?") from None
         raw = [list(r) for r in ws.iter_rows(values_only=True)]
     elif filename.lower().endswith(".csv"):
         raw = list(csv.reader(io.StringIO(data.decode("utf-8-sig"))))
@@ -58,14 +62,10 @@ def read_rows(filename, data):
     return [{key: (r[i] if i < len(r) else None) for i, key in cols.items()} for r in raw[1:]]
 
 
-def import_lecturers(semester_id, rows, replace=False):
-    """Upsert lecturers by Staff ID and link them to the semester.
-
-    Returns (imported_count, [error strings]). Bad rows are skipped, good rows kept.
-    """
-    db = get_db()
-    errors, good = [], []
-    seen = set()
+def clean_lecturer_rows(rows):
+    """Validate uploaded rows. Returns (good rows, error strings); bad rows are skipped, good ones kept."""
+    errors, good, seen = [], [], set()
+    headers = dict((c[0], c[1]) for c in COLUMNS)
     for n, row in enumerate(rows, start=2):
         try:
             clean = {k: ("" if row.get(k) is None else str(row.get(k)).strip())
@@ -73,7 +73,7 @@ def import_lecturers(semester_id, rows, replace=False):
             clean["status"] = clean["status"] or "Active"
             for k in ("staff_id", "name", "grade", "bidang"):
                 if not clean[k]:
-                    raise ValueError(f"{dict((c[0], c[1]) for c in COLUMNS)[k]} is empty")
+                    raise ValueError(f"{headers[k]} is empty")
             if clean["staff_id"] in seen:
                 raise ValueError("duplicate Staff ID in file")
             seen.add(clean["staff_id"])
@@ -85,6 +85,16 @@ def import_lecturers(semester_id, rows, replace=False):
             good.append(clean)
         except ValueError as exc:
             errors.append(f"Row {n}: {exc}")
+    return good, errors
+
+
+def import_lecturers(semester_id, rows, replace=False):
+    """Upsert lecturers by Staff ID and link them to the semester.
+
+    Returns (imported_count, [error strings]). Bad rows are skipped, good rows kept.
+    """
+    db = get_db()
+    good, errors = clean_lecturer_rows(rows)
     if replace:
         db.execute("DELETE FROM semester_lecturers WHERE semester_id=?", (semester_id,))
     for c in good:
@@ -177,8 +187,32 @@ def department_quota(semester):
 
 
 # ---------------------------------------------------------------- workflow
+def history_before(semester_id):
+    """Earlier semesters (oldest first) in the form rotation.standing() expects."""
+    db = get_db()
+    history = []
+    for sem in db.execute("SELECT id, name FROM semesters WHERE id<? ORDER BY id", (semester_id,)).fetchall():
+        rows = audit_rows(sem["id"])
+        if not rows:                                  # never generated: it says nothing about who was audited
+            continue
+        history.append({
+            "name": sem["name"],
+            "present": {l["staff_id"] for l in semester_lecturers(sem["id"]) if logic.is_eligible(l["status"])},
+            "audited": {a["ee_staff"] for a in rows if a["round_no"] == 1},
+            "auditor_counts": dict(_count(a["er_staff"] for a in rows if a["er_staff"] and is_active(a))),
+        })
+    return history
+
+
+def _count(items):
+    counts = defaultdict(int)
+    for i in items:
+        counts[i] += 1
+    return counts
+
+
 def generate(semester, rng=None, today=None):
-    """Select auditees (per-department quota) and auditors. Replaces any existing list."""
+    """Select auditees (per-department quota, longest-waiting first) and auditors. Replaces any existing list."""
     rng = rng or random.Random()
     db = get_db()
     people = [dict(l) for l in semester_lecturers(semester["id"]) if logic.is_eligible(l["status"])]
@@ -187,8 +221,9 @@ def generate(semester, rng=None, today=None):
     by = defaultdict(list)
     for p in people:
         by[p["bidang"]].append(p)
-    auditees = logic.select_auditees(by, semester["min_percent"], rng)
-    pairing = logic.assign_auditors(auditees, people, rng, today)
+    st = rotation.standing(people, history_before(semester["id"]), today)
+    auditees, _short = rotation.select_auditees(by, semester["min_percent"], st, rng)
+    pairing = rotation.assign_auditors(auditees, people, st, rng, today)
     db.execute("DELETE FROM audits WHERE semester_id=?", (semester["id"],))
     for a in auditees:
         db.execute("INSERT INTO audits (semester_id,auditee_id,auditor_id,origin) VALUES (?,?,?,'auto')",

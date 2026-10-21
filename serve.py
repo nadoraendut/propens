@@ -1,4 +1,4 @@
-"""Production entry point:  gunicorn wsgi:app"""
+"""Production entry point:  gunicorn serve:app"""
 from propens import create_app
 
 app = create_app()

@@ -74,7 +74,7 @@ docker compose exec app flask backup              # backup now
 ```bash
 python3 -m venv venv && venv/bin/pip install -r requirements.txt
 export PROPENS_DATA_DIR=/var/lib/propens PROPENS_HTTPS=1 PROPENS_BEHIND_PROXY=1 FLASK_APP=propens
-venv/bin/gunicorn wsgi:app --bind 127.0.0.1:8000 --workers 2 --threads 4     # run under systemd
+venv/bin/gunicorn serve:app --bind 127.0.0.1:8000 --workers 2 --threads 4     # run under systemd
 ```
 Put nginx/Apache in front for HTTPS (forward to port 8000), and add a cron entry for `flask send-reminders` and `flask backup`.
 

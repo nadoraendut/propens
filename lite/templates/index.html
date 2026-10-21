@@ -1,0 +1,32 @@
+{% extends "base.html" %}{% block body %}
+{% if error %}<div class="flash">{{ error }}</div>{% endif %}
+<form method="post" action="/generate" enctype="multipart/form-data">
+<div class="card"><h1>Draw this semester's audit list</h1>
+<p class="mut">Everything stays in your browser session: nothing is saved on the server. Upload, draw, download.</p></div>
+
+<div class="card"><h2>1. Lecturers this semester</h2>
+<label>Excel (.xlsx) or CSV with Staff ID, Staff Name, Gred Jawatan, Bidang, Start of Employment, Campus, Status</label>
+<input type="file" name="lecturers" accept=".xlsx,.csv" required>
+<p><a href="/lecturer-template.xlsx">Download the template</a>. Only lecturers with Status "Active" are drawn or can audit.</p></div>
+
+<div class="card"><h2>2. History (so the same people are not picked again)</h2>
+<label>The Excel file this tool gave you last semester (its "Ledger" sheet), or a simple list of past audits</label>
+<input type="file" name="history" accept=".xlsx,.csv">
+<p class="mut">Leave empty for the very first draw. Otherwise upload last semester's download: it already contains every earlier semester.
+No file yet? <a href="/history-template.xlsx">Use this template</a> to list who was audited in past semesters (oldest first).</p></div>
+
+<div class="card"><h2>3. Settings</h2><div class="row">
+<div><label>Semester name</label><input name="semester" value="{{ form.get('semester','') }}" placeholder="e.g. Mac-Ogos 2026" required></div>
+<div><label>Minimum % audited in each Bidang</label><input name="percent" type="number" step="0.1" min="0.1" max="100" value="{{ form.get('percent','20') }}" required></div>
+<div><label>Seed (optional, to repeat a draw)</label><input name="seed" inputmode="numeric" value="{{ form.get('seed','') }}"></div></div>
+<label>Do NOT audit this semester (Staff IDs, e.g. on leave) - optional</label><input name="exclude" value="{{ form.get('exclude','') }}" style="width:100%">
+<label>Must be audited this semester (Staff IDs) - optional</label><input name="force" value="{{ form.get('force','') }}" style="width:100%">
+<p><button>Draw</button></p></div>
+</form>
+
+<div class="card"><h2>How the selection stays fair (giliran)</h2><ul class="mut">
+<li>In every Bidang, the quota is filled by the lecturers who have <b>waited longest</b> since they were last audited. Someone audited last semester is not picked again unless the Bidang is too small to avoid it.</li>
+<li>Lecturers with the same waiting time are chosen by a random draw. The seed is printed so the draw can be shown and repeated.</li>
+<li>New staff are not rushed to the front: they only count the semesters they were actually in the pool.</li>
+<li>Auditors must be higher in grade or more senior, and the load is shared evenly, rotating towards people who audited least and were not themselves audited.</li></ul></div>
+{% endblock %}

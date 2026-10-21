@@ -3,6 +3,10 @@ Automatic selection of lecturers to be audited each semester, with auditor match
 two-step approval (Admin → Head of Faculty), e-mail notices, session reminders,
 mark entry, Excel export and per-semester reports.
 
+## Two ways to use this repository
+* **Audit Draw** (`lite/`, see [LITE.md](LITE.md)): the small, stateless version for Vercel. Only the fair draw of auditees and auditors.
+* **Audit Planner** (`propens/`, below): the full application. Its *Generate* button uses the same fair rotation, with history taken from earlier semesters in its database.
+
 ## Run
 ```
 pip install -r requirements.txt
@@ -53,7 +57,7 @@ Tests: `pytest`
 12. Admin downloads the Excel (marks + department/campus/workload/band summaries); report page shows the same.
 
 ## Rules implemented
-* **Quota:** in every department (Bidang), `ceil(active lecturers × min%)`, at least 1, are drawn at random.
+* **Quota:** in every department (Bidang), `ceil(active lecturers × min%)`, at least 1, are selected. **Rotation (giliran):** within a Bidang the lecturers who have waited longest since their last audit go first, equal waits are drawn by lot, so nobody is audited again until everyone has had a turn (see `propens/rotation.py`).
   Only lecturers with Status = `Active` are counted, selected, or used as auditors.
 * **Auditor:** not the auditee, and **either** a higher Gred Jawatan number **or** more Years of Employment
   (current year − start year). Workload is spread evenly. If nobody qualifies (e.g. the most senior
