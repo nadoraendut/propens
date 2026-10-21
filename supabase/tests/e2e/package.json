@@ -1,0 +1,1 @@
+{ "name": "propens-e2e-shim", "private": true, "type": "module", "dependencies": { "pg": "^8" } }

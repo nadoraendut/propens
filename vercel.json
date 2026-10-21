@@ -1,4 +1,1 @@
-{
-  "rewrites": [{ "source": "/(.*)", "destination": "/api/index" }],
-  "functions": { "api/index.py": { "includeFiles": "{lite,propens}/**" } }
-}
+{ "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }] }
