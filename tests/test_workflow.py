@@ -26,6 +26,10 @@ def app(tmp_path):
 
 
 def client_for(app, staff_id, pw="pw123456"):
+    with app.app_context():                      # most tests are not about the first-login password change
+        db = get_db()
+        db.execute("UPDATE lecturers SET must_change_password=0 WHERE staff_id=?", (staff_id,))
+        db.commit()
     c = app.test_client()
     c.get("/login")
     with c.session_transaction() as s:

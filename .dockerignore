@@ -1,0 +1,9 @@
+.git
+instance
+tests
+__pycache__
+*.pyc
+.pytest_cache
+deploy
+docker-compose.yml
+.env

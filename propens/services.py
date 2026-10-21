@@ -89,8 +89,9 @@ def import_lecturers(semester_id, rows, replace=False):
         db.execute("DELETE FROM semester_lecturers WHERE semester_id=?", (semester_id,))
     for c in good:
         db.execute(
-            """INSERT INTO lecturers (staff_id,name,grade,bidang,start_date,campus,status,email,password_hash)
-               VALUES (?,?,?,?,?,?,?,?,?)
+            """INSERT INTO lecturers (staff_id,name,grade,bidang,start_date,campus,status,email,password_hash,
+                                      must_change_password)
+               VALUES (?,?,?,?,?,?,?,?,?,1)
                ON CONFLICT(staff_id) DO UPDATE SET name=excluded.name, grade=excluded.grade,
                  bidang=excluded.bidang, start_date=excluded.start_date, campus=excluded.campus,
                  status=excluded.status, email=CASE WHEN excluded.email<>'' THEN excluded.email ELSE email END""",

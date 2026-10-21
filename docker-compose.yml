@@ -1,0 +1,45 @@
+# Audit Planner: app + HTTPS reverse proxy + daily reminders/backups.
+#   cp .env.example .env   (edit it)   then   docker compose up -d --build
+services:
+  app:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      PROPENS_HTTPS: "1"             # secure cookies (the proxy terminates HTTPS)
+      PROPENS_BEHIND_PROXY: "1"
+    volumes:
+      - propens-data:/data
+    expose: ["8000"]
+
+  # Runs once at start and then every 6 hours: send due session reminders, take a database backup.
+  # (Reminders are sent once per session, so running often is harmless.)
+  scheduler:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - propens-data:/data
+    command: >
+      sh -c "while true; do
+               flask send-reminders;
+               flask backup --keep 60;
+               sleep 21600;
+             done"
+
+  proxy:
+    image: caddy:2
+    restart: unless-stopped
+    depends_on: [app]
+    ports: ["80:80", "443:443"]
+    environment:
+      DOMAIN: ${DOMAIN}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+
+volumes:
+  propens-data:
+  caddy-data:
+  caddy-config:

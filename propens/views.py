@@ -1,5 +1,6 @@
 import io
 import random
+from datetime import datetime, timedelta
 from functools import wraps
 
 from flask import (Blueprint, abort, flash, g, redirect, render_template, request,
@@ -20,6 +21,9 @@ def load_user():
         g.user = get_db().execute("SELECT * FROM lecturers WHERE id=?", (session["uid"],)).fetchone()
         if g.user is None:
             session.clear()
+        elif g.user["must_change_password"] and request.endpoint not in ("main.password", "main.logout"):
+            flash("Please set a new password before continuing.", "warn")
+            return redirect(url_for("main.password"))
 
 
 def login_required(*roles):
@@ -61,17 +65,35 @@ def back(sid):
 
 
 # --------------------------------------------------------------------- auth
+MAX_FAILED_LOGINS = 5
+LOCK_MINUTES = 15
+
+
 @bp.route("/login", methods=["GET", "POST"])
 def login():
     if request.method == "POST":
-        u = get_db().execute("SELECT * FROM lecturers WHERE staff_id=?",
-                             (request.form["staff_id"].strip(),)).fetchone()
+        db = get_db()
+        u = db.execute("SELECT * FROM lecturers WHERE staff_id=?", (request.form["staff_id"].strip(),)).fetchone()
+        if u and u["locked_until"] and u["locked_until"] > services.now():
+            flash(f"Too many failed attempts. Try again after {u['locked_until'].replace('T', ' ')}.", "error")
+            return render_template("login.html")
         if u and check_password_hash(u["password_hash"], request.form["password"]):
+            db.execute("UPDATE lecturers SET failed_logins=0, locked_until=NULL WHERE id=?", (u["id"],))
+            db.commit()
             session.clear()
+            session.permanent = True            # expires after PERMANENT_SESSION_LIFETIME
             session["uid"], session["role"] = u["id"], u["role"]
             nxt = request.args.get("next", "")
             return redirect(nxt if nxt.startswith("/") and not nxt.startswith("//") else url_for("main.home"))
-        flash("Wrong Staff ID or password.", "error")
+        if u:
+            fails = u["failed_logins"] + 1
+            lock = None
+            if fails >= MAX_FAILED_LOGINS:
+                lock = (datetime.now() + timedelta(minutes=LOCK_MINUTES)).isoformat(timespec="seconds")
+                fails = 0
+            db.execute("UPDATE lecturers SET failed_logins=?, locked_until=? WHERE id=?", (fails, lock, u["id"]))
+            db.commit()
+        flash("Wrong Staff ID or password.", "error")   # same message whether or not the Staff ID exists
     return render_template("login.html")
 
 
@@ -85,14 +107,17 @@ def logout():
 @login_required()
 def password():
     if request.method == "POST":
+        new = request.form["new"]
         if not check_password_hash(g.user["password_hash"], request.form["current"]):
             flash("Current password is wrong.", "error")
-        elif len(request.form["new"]) < 8:
+        elif len(new) < 8:
             flash("New password must be at least 8 characters.", "error")
+        elif new == request.form["current"] or new == g.user["staff_id"]:
+            flash("Choose a password different from the current one and from your Staff ID.", "error")
         else:
             db = get_db()
-            db.execute("UPDATE lecturers SET password_hash=? WHERE id=?",
-                       (generate_password_hash(request.form["new"]), g.user["id"]))
+            db.execute("UPDATE lecturers SET password_hash=?, must_change_password=0 WHERE id=?",
+                       (generate_password_hash(new), g.user["id"]))
             db.commit()
             flash("Password changed.", "ok")
             return redirect(url_for("main.home"))
@@ -155,7 +180,7 @@ def lecturer_form(lid):
                               status=?,email=?,role=? WHERE id=?""", vals + [lid])
             else:
                 db.execute("""INSERT INTO lecturers (staff_id,name,grade,bidang,start_date,campus,status,email,
-                              role,password_hash) VALUES (?,?,?,?,?,?,?,?,?,?)""",
+                              role,password_hash,must_change_password) VALUES (?,?,?,?,?,?,?,?,?,?,1)""",
                            vals + [generate_password_hash(vals[0])])
             db.commit()
             flash("Lecturer saved." + ("" if row else " Initial password is the Staff ID."), "ok")

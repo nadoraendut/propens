@@ -11,9 +11,11 @@ flask --app propens create-user HOF001 "Head Name" --role head --email head@uni.
 flask --app propens run
 ```
 Sign in with Staff ID + password. Lecturers imported from a file get their **Staff ID as the
-initial password** (they can change it under their name in the top bar).
+initial password** and must choose a new one at first login; 5 wrong passwords lock an account for 15 minutes.
 
-Run `flask --app propens send-reminders` once a day (cron) to send session reminders
+**Deploying for real use: see [DEPLOY.md](DEPLOY.md)** (Docker Compose with HTTPS, daily reminders and automatic backups).
+
+(In Docker this is automatic.) Run `flask --app propens send-reminders` once a day (cron) to send session reminders
 (sent on the day before and the day of the session). Admins can also press *Send due reminders*.
 
 E-mail: set `SMTP_HOST` (plus `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_TLS`, `MAIL_FROM`).

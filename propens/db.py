@@ -42,7 +42,10 @@ CREATE TABLE IF NOT EXISTS lecturers (
     status TEXT NOT NULL DEFAULT 'Active',
     email TEXT NOT NULL DEFAULT '',
     role TEXT NOT NULL DEFAULT 'lecturer' CHECK (role IN ('lecturer','admin','head')),
-    password_hash TEXT NOT NULL
+    password_hash TEXT NOT NULL,
+    must_change_password INTEGER NOT NULL DEFAULT 0,   -- 1 = first login must set a new password
+    failed_logins INTEGER NOT NULL DEFAULT 0,
+    locked_until TEXT
 );
 CREATE TABLE IF NOT EXISTS semesters (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -111,6 +114,7 @@ def get_db():
         g.db = sqlite3.connect(current_app.config["DATABASE"])
         g.db.row_factory = sqlite3.Row
         g.db.execute("PRAGMA foreign_keys = ON")
+        g.db.execute("PRAGMA busy_timeout = 5000")      # wait for a concurrent writer instead of failing
     return g.db
 
 
@@ -147,6 +151,12 @@ def init_db():
     sql = db.execute("SELECT sql FROM sqlite_master WHERE name='audits'").fetchone()["sql"]
     if "UNIQUE (semester_id, auditee_id)" in sql or "round_no" not in sql:
         _rebuild_audits(db)
+    db.execute("PRAGMA journal_mode = WAL")             # readers do not block the writer (several web workers)
+    lec = {r["name"] for r in db.execute("PRAGMA table_info(lecturers)")}
+    for col, ddl in (("must_change_password", "INTEGER NOT NULL DEFAULT 0"),
+                     ("failed_logins", "INTEGER NOT NULL DEFAULT 0"), ("locked_until", "TEXT")):
+        if col not in lec:
+            db.execute(f"ALTER TABLE lecturers ADD COLUMN {col} {ddl}")
     have = {r["name"] for r in db.execute("PRAGMA table_info(semesters)")}
     for col, ddl in (("reaudit_below", "REAL NOT NULL DEFAULT 80"),  # marks below this trigger a re-audit
                      ("submitted_ajk_at", "TEXT"),                    # admin passed the results to AJK Induk
