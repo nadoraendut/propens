@@ -15,7 +15,8 @@ Pensyarah, Mac-Ogos 2026) is the source of the rubric; the text in `src/lib/rubr
 `supabase/tests/` (SQL scenario test, `e2e/` browser test), `flask-app/` (the earlier Python version incl. the stateless Vercel "Audit Draw"; self-contained, keep working).
 
 ## Decisions to keep (confirmed by the owner)
-- Bidang = department; only Status "Active" counts, is drawn or can audit. Quota per Bidang = ceil(active x min%), at least 1.
+- Bidang = department; only Status "Active" counts, is drawn or can audit. Quota per Bidang = active x min%, each Bidang rounded to the nearest whole number (either way is fine) as long as the total audited is at least min% of all active lecturers
+  (owner's rule, Oct 2026; the app still uses ceil per Bidang). **PTFT are outside the 30% and must be audited every semester.** A "-" in the schedule means audited last semester: not audited now.
 - Auditor must be **higher grade OR more years of service**; if nobody outranks the auditee, a same-years peer; otherwise the Head picks.
   A manual pick that breaks the rule is allowed but flagged "Override".
 - Mark = TAS out of 100 from the 29-item rubric (TS = raw x 50/145, TAS = TS x 2). Per-section "Average Score" lines of the form are
@@ -42,6 +43,9 @@ push to `main` only when the owner says so. If a change needs a migration, give 
 - Try everything on the real Supabase project (login with Staff ID, forced password change, `import-lecturers`, `send-outbox` + Resend, Cron job).
 - Confirm with the department: the 80 threshold, and whether lecturers may see the numeric mark after release (now: yes; a band-only view is a small change).
 - A Bidang with one lecturer is audited every semester (quota rule); decide whether such Bidang need an exception.
+- Bring the owner's Oct 2026 rules into the app: nearest-rounding quota with total >= min%, PTFT always audited (outside the quota), diploma lecturers (CS110, Mat/Stat; KJM and KAG;
+  run by another committee member) as a separate programme. The Oct 2026 list was drawn outside the app with `flask-app` rotation + scripts in the session scratchpad; import it as history.
+  Diploma sheet has no start year: Staff ID order matches start year exactly in the degree data (0 inversions in 2415 pairs), so it can serve as a seniority proxy.
 - Past semesters before this app: the draw has no history for them (everyone starts equal). Importing old audit lists would sharpen the rotation.
 - Retention/PDPA: staff data and marks live in Supabase (check the region and UiTM rules); no automatic deletion yet.
 - Nice to have: printable PDF/Word copy of a completed rubric, weighted-random mode (less predictable rotation), a lecturer-side password reset by the admin.
