@@ -19,6 +19,7 @@ Pensyarah, Mac-Ogos 2026) is the source of the rubric; the text in `src/lib/rubr
   (owner's rule, Oct 2026; the app still uses ceil per Bidang). **PTFT are outside the 30% and must be audited every semester.** A "-" in the schedule means audited last semester: not audited now.
 - Auditor must be **higher grade OR more years of service**; if nobody outranks the auditee, a same-years peer; otherwise the Head picks.
   A manual pick that breaks the rule is allowed but flagged "Override".
+  Bidang and programme do not matter (Ketua: Propens assesses teaching method, not content): cross-Bidang and degree/diploma auditors are fine. A "-" lecturer (not audited now) can still audit if senior.
 - Mark = TAS out of 100 from the 29-item rubric (TS = raw x 50/145, TAS = TS x 2). Per-section "Average Score" lines of the form are
   NOT used. Bands from the form's own table; 90-100 = Cemerlang.
 - Re-audit when the final mark is **below** 80 (80 passes; configurable per semester, pending the department's confirmation). The Head approves the second auditor.
